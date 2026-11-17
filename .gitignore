@@ -1,0 +1,8 @@
+__pycache__/
+# your location and API keys: kept on this PC only
+config.json
+keys.json
+# written by the app
+data/
+positions.json
+*.log

@@ -1,0 +1,7 @@
+{
+  "name": "Home",
+  "lat": 0.0,
+  "lon": 0.0,
+  "refresh_minutes": 10,
+  "weather_display_dir": ""
+}

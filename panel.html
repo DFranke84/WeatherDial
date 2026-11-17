@@ -1,0 +1,463 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>WeatherDial</title>
+<style>
+  :root {
+    --face: rgba(24, 26, 30, .78); --edge: #4a4f58; --text: #e8e8e8; --dim: #9aa0aa; --faint: #5d636d;
+    --line: #2f343c; --warm: #ffb347; --cold: #6cb6ff; --rain: #4d9fff; --good: #5fd068; --fair: #ffc933;
+    --bad: #ff5a4f; --accent: #7cc4ff;
+  }
+  html, body { margin: 0; background: transparent; color: var(--text); user-select: none;
+               font: 13px/1.35 "Segoe UI", sans-serif; }
+  body.preview { background: #1d2733 linear-gradient(160deg, #24384c, #14181d); min-height: 100vh; padding: 24px; box-sizing: border-box; }
+  #panel { width: 500px; background: var(--face); border: 1px solid var(--edge); border-radius: 14px;
+           overflow: hidden; backdrop-filter: blur(6px); }
+  header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  header .place { font-weight: 600; }
+  header .near { color: var(--dim); }
+  header .upd { margin-left: auto; color: var(--faint); font-size: 12px; }
+  .btn { cursor: pointer; color: var(--dim); padding: 0 4px; border-radius: 4px; }
+  .btn:hover { color: var(--text); background: #ffffff14; }
+
+  .alert { padding: 7px 12px; background: #5a1a17; border-bottom: 1px solid #8c2b25; cursor: pointer; }
+  .alert.moderate { background: #5a4410; border-color: #8c6a1a; }
+  .alert b { color: #ffd2cc; }
+  .alert .more { display: none; white-space: pre-wrap; color: #f0d6d2; margin-top: 6px; font-size: 12px; }
+  .alert.open .more { display: block; }
+
+  .now { display: grid; grid-template-columns: 74px auto 1fr; gap: 4px 12px; padding: 10px 12px 6px; align-items: center; }
+  .now .big { font-size: 46px; font-weight: 300; line-height: 1; }
+  .now .big sup { font-size: 20px; color: var(--dim); }
+  .now .cond { font-size: 15px; }
+  .now .from { color: var(--dim); font-size: 12px; }
+  .now .hilo { color: var(--dim); }
+  .now .hilo b { color: var(--text); font-weight: 600; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line);
+           border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .stat { background: #1a1c20; padding: 5px 8px; min-height: 34px; }
+  .stat .k { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .stat .v { font-weight: 600; }
+  .stat .v small { font-weight: 400; color: var(--dim); }
+
+  nav { display: flex; border-bottom: 1px solid var(--line); }
+  nav div { flex: 1; text-align: center; padding: 6px 0; color: var(--dim); cursor: pointer; border-bottom: 2px solid transparent; }
+  nav div:hover { color: var(--text); }
+  nav div.on { color: var(--text); border-bottom-color: var(--accent); }
+  .tab { display: none; padding: 8px 12px 10px; height: 360px; overflow-y: auto; }
+  .pywebview-drag-region { cursor: move; }
+  #menu { position: fixed; background: #222; border: 1px solid #555; border-radius: 6px; z-index: 20;
+          font-size: 13px; color: #ddd; padding: 4px 0; white-space: nowrap; }
+  #menu div { padding: 4px 14px; cursor: default; }
+  #menu div:hover { background: #3a3f48; }
+  #menu hr { border: 0; border-top: 1px solid #444; margin: 3px 0; }
+  .tab.on { display: block; }
+  .tab::-webkit-scrollbar { width: 6px; } .tab::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+  .seg { display: inline-flex; border: 1px solid var(--edge); border-radius: 5px; overflow: hidden; margin-bottom: 6px; }
+  .seg span { padding: 1px 9px; cursor: pointer; color: var(--dim); }
+  .seg span.on { background: #ffffff1c; color: var(--text); }
+  .legend { color: var(--dim); font-size: 11px; margin-left: 8px; }
+  .legend i { display: inline-block; width: 14px; height: 3px; vertical-align: middle; margin: 0 3px 0 8px; }
+
+  svg text { fill: var(--dim); font-size: 10px; }
+  #tip { position: fixed; pointer-events: none; background: #111a; border: 1px solid var(--edge); border-radius: 6px;
+         padding: 5px 8px; font-size: 12px; display: none; backdrop-filter: blur(4px); z-index: 9; }
+
+  .day { display: grid; grid-template-columns: 44px 26px 1fr 34px 30px 140px 30px 14px; gap: 6px; align-items: center;
+         padding: 3px 0; border-bottom: 1px solid #ffffff0a; cursor: pointer; }
+  .day:hover { background: #ffffff08; }
+  .day .dn { font-weight: 600; } .day .dn small { display: block; color: var(--faint); font-weight: 400; font-size: 11px; }
+  .day .txt { color: var(--dim); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .day .pop { color: var(--rain); text-align: right; }
+  .day .lo { color: var(--cold); text-align: right; } .day .hi { color: var(--warm); }
+  .bar { position: relative; height: 6px; background: #ffffff10; border-radius: 3px; }
+  .bar .rng { position: absolute; top: 0; height: 6px; border-radius: 3px; }
+  .bar .sp { position: absolute; top: -3px; height: 12px; border-left: 1px solid #fff8; border-right: 1px solid #fff8; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .detail { display: none; padding: 4px 4px 8px 50px; color: var(--dim); font-size: 12px; }
+  .detail.open { display: block; }
+  .detail p { margin: 3px 0; } .detail b { color: var(--text); }
+  .detail table { border-collapse: collapse; margin-top: 4px; }
+  .detail td { padding: 1px 8px 1px 0; }
+
+  table.cmp { border-collapse: collapse; width: 100%; font-size: 12px; }
+  table.cmp th { color: var(--dim); font-weight: 400; text-align: center; padding: 2px; }
+  table.cmp th:first-child, table.cmp td:first-child { text-align: left; white-space: nowrap; }
+  table.cmp td { text-align: center; padding: 3px 2px; border-top: 1px solid #ffffff0a; }
+  table.cmp tr.cons td { border-top: 1px solid var(--edge); font-weight: 600; }
+  .dev-hi { color: #ff9b8f; } .dev-lo { color: #8fc2ff; }
+  h4 { margin: 10px 0 4px; font-size: 12px; color: var(--dim); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+
+  #radar { position: relative; width: 476px; height: 300px; overflow: hidden; border-radius: 8px; background: #111; }
+  #radar img { position: absolute; width: 256px; height: 256px; }
+  #radar .layer { position: absolute; inset: 0; }
+  #radar .me { position: absolute; width: 8px; height: 8px; margin: -5px 0 0 -5px; border: 1px solid #fff;
+               background: var(--bad); border-radius: 50%; z-index: 5; }
+  #radar .stamp { position: absolute; left: 8px; bottom: 6px; z-index: 6; background: #000a; padding: 1px 6px; border-radius: 4px; }
+  #radar .credit { position: absolute; right: 6px; bottom: 4px; z-index: 6; font-size: 10px; color: #aaa; }
+
+  pre.afd { white-space: pre-wrap; font: 12px/1.4 Consolas, monospace; color: #cfd3da; margin: 0; }
+  .src { display: grid; grid-template-columns: 12px 1fr auto; gap: 8px; align-items: center; padding: 3px 0; border-bottom: 1px solid #ffffff0a; }
+  .src .note { color: var(--faint); font-size: 12px; }
+  a { color: var(--accent); }
+  body.compact nav, body.compact .tab, body.compact .stats .extra { display: none !important; }
+  .mini3 { display: none; padding: 6px 12px 10px; gap: 6px; }
+  body.compact .mini3 { display: flex; }
+  .mini3 div { flex: 1; text-align: center; background: #ffffff08; border-radius: 6px; padding: 4px; }
+</style>
+</head>
+<body>
+<div id="panel">
+  <header class="drag">
+    <span class="place" id="place">…</span><span class="near" id="near"></span>
+    <span class="upd" id="upd"></span>
+    <span class="btn" id="bCompact" title="Compact / full">▭</span>
+    <span class="btn" id="bRefresh" title="Refresh now">⟳</span>
+  </header>
+  <div id="alerts"></div>
+  <div class="now drag" id="now"></div>
+  <div class="stats" id="stats"></div>
+  <div class="mini3" id="mini3"></div>
+  <nav id="nav">
+    <div data-t="hourly" class="on">Hourly</div><div data-t="daily">16-Day</div><div data-t="compare">Compare</div>
+    <div data-t="radar">Radar</div><div data-t="afd">Forecaster</div><div data-t="sources">Sources</div>
+  </nav>
+  <div class="tab on" id="t-hourly"></div>
+  <div class="tab" id="t-daily"></div>
+  <div class="tab" id="t-compare"></div>
+  <div class="tab" id="t-radar"><div id="radar"></div><div style="margin-top:6px;color:var(--dim)" id="radarInfo"></div></div>
+  <div class="tab" id="t-afd"></div>
+  <div class="tab" id="t-sources"></div>
+</div>
+<div id="tip"></div>
+<div id="menu" hidden>
+  <div data-act="lock" id="mLock">Lock position</div>
+  <div data-act="compact" id="mCompact">Compact</div>
+  <hr>
+  <div data-zoom="0.85">Size: Small</div>
+  <div data-zoom="1">Size: Medium</div>
+  <div data-zoom="1.15">Size: Large</div>
+  <hr>
+  <div data-act="refresh_now">Refresh now</div>
+  <div data-act="edit_keys">Edit API keys…</div>
+  <div data-act="edit_location">Edit location…</div>
+  <hr>
+  <div data-act="quit">Close WeatherDial</div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const Q = new URLSearchParams(location.search);
+if (Q.has("preview")) document.body.classList.add("preview");
+let D = null, hourSpan = 48, radarTimer = null;
+
+// ---------------------------------------------------------------- icons (inline SVG)
+const SUN = (x, y, r) => `<circle cx="${x}" cy="${y}" r="${r}" fill="#ffc94a"/>` +
+  [...Array(8)].map((_, i) => { const a = i * Math.PI / 4, c = Math.cos(a), s = Math.sin(a);
+    return `<line x1="${x + c * r * 1.45}" y1="${y + s * r * 1.45}" x2="${x + c * r * 1.95}" y2="${y + s * r * 1.95}" stroke="#ffc94a" stroke-width="2" stroke-linecap="round"/>`; }).join("");
+const MOON = (x, y, r) => `<path d="M${x + r * .3} ${y - r} a${r} ${r} 0 1 0 ${r * .75} ${r * 1.55} a${r * .8} ${r * .8} 0 0 1 -${r * .75} -${r * 1.55}z" fill="#d7dce6"/>`;
+const CLOUD = (dx = 0, dy = 0, fill = "#c9d0da") => `<path transform="translate(${dx} ${dy})" d="M9 27h17a6 6 0 0 0 0-12 8 8 0 0 0-15-2 6.5 6.5 0 0 0-2 14z" fill="${fill}"/>`;
+const drops = (c, kind) => [10, 17, 24].map((x, i) => kind === "snow"
+  ? `<text x="${x - 2}" y="${36 + (i % 2) * 2}" style="fill:#fff;font-size:9px">✱</text>`
+  : `<line x1="${x}" y1="${30 + (i % 2)}" x2="${x - 2}" y2="${36 + (i % 2)}" stroke="${c}" stroke-width="2" stroke-linecap="round"/>`).join("");
+function icon(kind, size = 26, night = false) {
+  let s;
+  switch (kind) {
+    case "clear": s = night ? MOON(18, 18, 9) : SUN(18, 18, 7); break;
+    case "partly": s = (night ? MOON(23, 12, 7) : SUN(24, 12, 5.5)) + CLOUD(-2, 4); break;
+    case "cloudy": s = CLOUD(2, -2, "#8d96a3") + CLOUD(-2, 3); break;
+    case "rain": case "drizzle": s = CLOUD(-1, -2, "#9aa4b2") + drops("#4d9fff"); break;
+    case "snow": s = CLOUD(-1, -2) + drops("#fff", "snow"); break;
+    case "sleet": s = CLOUD(-1, -2, "#9aa4b2") + `<line x1="10" y1="30" x2="8" y2="36" stroke="#4d9fff" stroke-width="2"/><text x="15" y="37" style="fill:#fff;font-size:9px">✱</text><line x1="26" y1="30" x2="24" y2="36" stroke="#4d9fff" stroke-width="2"/>`; break;
+    case "storm": s = CLOUD(-1, -3, "#7d8695") + `<path d="M18 24l-4 7h4l-3 7 8-9h-4l3-5z" fill="#ffd23f"/>`; break;
+    case "fog": s = CLOUD(-1, -5) + [26, 31, 36].map(y => `<line x1="6" y1="${y}" x2="30" y2="${y}" stroke="#aab" stroke-width="2" stroke-linecap="round"/>`).join(""); break;
+    case "smoke": s = [12, 19, 26].map((y, i) => `<path d="M5 ${y}q6-5 12 0t13 0" stroke="#b9a58a" stroke-width="2.5" fill="none"/>`).join(""); break;
+    case "wind": s = `<path d="M4 14h18a4 4 0 1 0-4-4M4 21h24a4 4 0 1 1-4 4M4 28h12" stroke="#c9d0da" stroke-width="2.2" fill="none" stroke-linecap="round"/>`; break;
+    default: s = CLOUD(); }
+  return `<svg width="${size}" height="${size}" viewBox="0 0 36 40">${s}</svg>`;
+}
+
+// ---------------------------------------------------------------- helpers
+const DIRS = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+const compass = d => d == null ? "" : DIRS[Math.round(d / 22.5) % 16];
+const f0 = v => v == null ? "–" : Math.round(v);
+const dayName = (s, long) => { const d = new Date(s + "T12:00"); return d.toLocaleDateString("en-US", { weekday: long ? "long" : "short" }); };
+const hourLabel = t => { let h = +t.slice(11, 13); return h === 0 ? "12a" : h < 12 ? h + "a" : h === 12 ? "12p" : (h - 12) + "p"; };
+const clock = s => s ? new Date(s).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "–";
+const hm = s => s ? clock(s).replace(" AM", "a").replace(" PM", "p") : "–";
+const tempColor = t => t == null ? "#888" : t < 10 ? "#a78bff" : t < 32 ? "#6cb6ff" : t < 50 ? "#7fd6c2" : t < 70 ? "#c6e06a" : t < 85 ? "#ffb347" : "#ff6a4f";
+const aqiInfo = a => a == null ? ["–", "#888"] : a <= 50 ? ["Good", "#5fd068"] : a <= 100 ? ["Moderate", "#ffc933"] : a <= 150 ? ["Unhealthy (sensitive)", "#ff8c3a"] : a <= 200 ? ["Unhealthy", "#ff4f4f"] : ["Very unhealthy", "#b04fff"];
+const isNight = () => { const s = D?.sky?.today; if (!s) return false; const n = new Date(); return n < new Date(s.sunrise) || n > new Date(s.sunset); };
+const moonGlyph = p => ["🌑","🌒","🌓","🌔","🌕","🌖","🌗","🌘"][Math.round(p * 8) % 8];
+const esc = s => (s || "").replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+function ago(iso) {
+  if (!iso) return ""; const s = (Date.now() - new Date(iso)) / 1000;
+  return s < 90 ? "just now" : s < 3600 ? Math.round(s / 60) + " min ago" : Math.round(s / 3600) + " h ago";
+}
+
+// ---------------------------------------------------------------- render
+function render() {
+  const L = D.location, n = D.now || {}, today = D.days[0] || {}, sky = D.sky.today || {};
+  $("place").textContent = L.name;
+  $("near").textContent = L.near ? `· near ${L.near} · ${L.elevation_ft.toLocaleString()} ft` : "";
+  $("upd").textContent = "updated " + clock(D.updated);
+
+  $("alerts").innerHTML = D.alerts.map((a, i) => `<div class="alert ${/minor|moderate/i.test(a.severity) ? "moderate" : ""}" data-i="${i}">
+    ⚠ <b>${esc(a.event)}</b> <span style="color:#e9b9b2">until ${clock(a.ends)}</span>
+    <div class="more">${esc(a.description)}${a.instruction ? "\n\n" + esc(a.instruction) : ""}</div></div>`).join("");
+
+  $("now").innerHTML = `<div>${icon(n.icon, 70, isNight())}</div>
+    <div class="big">${f0(n.temp)}<sup>°F</sup></div>
+    <div><div class="cond">${esc(n.text || "")}</div>
+      <div class="hilo">High <b>${f0(today.hi)}°</b> · Low <b>${f0(today.lo)}°</b> · Feels <b>${f0(n.feels)}°</b></div>
+      <div class="from">from ${esc(n.station || "–")} · ${n.age_s != null ? (n.age_s < 60 ? n.age_s + " s ago" : ago(n.time)) : ago(n.time)}</div></div>`;
+
+  const aq = aqiInfo(D.air?.us_aqi);
+  const trendArrow = { rising: "↗", falling: "↘", steady: "→" }[n.trend] || "";
+  const lastStrike = n.strike_time ? new Date(n.strike_time * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+  const strikes = n.strikes_3h != null ? (n.strikes_3h ? `${n.strikes_3h} <small>in 3 h · last ${f0(n.strike_dist)} mi</small>`
+                                                         : `<small title="Last strike ${lastStrike}, ${f0(n.strike_dist)} mi away">none · last ${lastStrike}</small>`)
+                                         : `<small>add Tempest token</small>`;
+  const stats = [
+    ["Wind", `${f0(n.wind)} <small>${compass(n.dir)} · gust ${f0(n.gust)}</small>`],
+    ["Humidity", `${f0(n.rh)}% <small>dew ${f0(n.dew)}°</small>`],
+    ["Pressure", `${n.pressure ? n.pressure.toFixed(2) : "–"} <small>${trendArrow} ${n.trend || "inHg"}</small>`],
+    ["Rain today", `${n.rain_today != null ? n.rain_today.toFixed(2) + '"' : "–"} <small>${n.rain_rate ? "falling now" : ""}</small>`],
+    ["UV / sun", `${n.uv ?? sky.uv ?? "–"} <small>${n.solar != null ? Math.round(n.solar) + " W/m²" : ""}</small>`, "extra"],
+    ["Sun · moon", `<small>↑</small>${hm(sky.sunrise)} <small>↓</small>${hm(sky.sunset)} <small title="${D.sky.moon.name}, ${D.sky.moon.illum}% lit">${moonGlyph(D.sky.moon.phase)}</small>`, "extra"],
+    ["Air quality", `<span style="color:${aq[1]}">${D.air?.us_aqi ?? "–"}</span> <small>${aq[0]}</small>`, "extra"],
+    ["Lightning", strikes, "extra"],
+  ];
+  $("stats").innerHTML = stats.map(([k, v, c]) => `<div class="stat ${c || ""}"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+  $("mini3").innerHTML = D.days.slice(0, 4).map((d, i) => `<div>${i ? dayName(d.date) : "Today"}<br>${icon(d.icon, 26)}<br>
+    <span style="color:var(--warm)">${f0(d.hi)}°</span> <span style="color:var(--cold)">${f0(d.lo)}°</span></div>`).join("");
+
+  renderHourly(); renderDaily(); renderCompare(); renderAfd(); renderSources();
+}
+
+function renderHourly() {
+  const H = D.hourly.slice(0, hourSpan), W = 476, top = 30, ch = 120, pb = 40, bot = top + ch + pb + 34;
+  const temps = H.flatMap(h => [h.temp, ...Object.values(h.by || {})]).filter(v => v != null);
+  const tmin = Math.floor(Math.min(...temps) - 2), tmax = Math.ceil(Math.max(...temps) + 2);
+  const x = i => 30 + i * (W - 44) / (H.length - 1), y = t => top + ch - (t - tmin) / (tmax - tmin) * ch;
+  const step = hourSpan === 48 ? 3 : 12;
+  let s = "";
+  // grid + day boundaries
+  for (let t = Math.ceil(tmin / 5) * 5; t <= tmax; t += 5) s += `<line x1="30" x2="${W - 14}" y1="${y(t)}" y2="${y(t)}" stroke="#ffffff0d"/><text x="0" y="${y(t) + 3}">${t}</text>`;
+  if (tmin < 32 && tmax > 32) s += `<line x1="30" x2="${W - 14}" y1="${y(32)}" y2="${y(32)}" stroke="#6cb6ff55" stroke-dasharray="3 3"/><text x="${W - 40}" y="${y(32) - 3}" style="fill:#6cb6ff99">freezing</text>`;
+  H.forEach((h, i) => { if (h.t.endsWith("T00:00") && i) s += `<line x1="${x(i)}" x2="${x(i)}" y1="${top - 8}" y2="${bot - 18}" stroke="#ffffff22"/><text x="${x(i) + 3}" y="${top - 2}" style="fill:#ccc">${dayName(h.t.slice(0, 10))}</text>`; });
+  // night shading
+  H.forEach((h, i) => { if (!h.day) s += `<rect x="${x(i) - (W - 44) / (H.length - 1) / 2}" y="${top - 8}" width="${(W - 44) / (H.length - 1)}" height="${ch + 8}" fill="#00000030"/>`; });
+  // model spread band
+  const lo = H.map(h => Math.min(...Object.values(h.by || {}).filter(v => v != null), h.temp));
+  const hi = H.map(h => Math.max(...Object.values(h.by || {}).filter(v => v != null), h.temp));
+  s += `<path d="M${H.map((_, i) => `${x(i)} ${y(hi[i])}`).join("L")}L${H.map((_, i) => `${x(H.length - 1 - i)} ${y(lo[H.length - 1 - i])}`).join("L")}Z" fill="#7cc4ff22"/>`;
+  // feels-like + temp lines
+  s += `<path d="M${H.map((h, i) => `${x(i)} ${y(h.feels ?? h.temp)}`).join("L")}" fill="none" stroke="#9aa0aa" stroke-width="1" stroke-dasharray="2 3"/>`;
+  s += `<path d="M${H.map((h, i) => `${x(i)} ${y(h.temp)}`).join("L")}" fill="none" stroke="#ffb347" stroke-width="2.2"/>`;
+  // precip chance bars + amount
+  const pTop = top + ch + 6;
+  H.forEach((h, i) => { const p = h.pop || 0, bw = Math.max(2, (W - 44) / H.length - 1);
+    s += `<rect x="${x(i) - bw / 2}" y="${pTop + pb - p / 100 * pb}" width="${bw}" height="${p / 100 * pb}" fill="${h.icon === "snow" ? "#dfe7f5aa" : "#4d9fffaa"}"/>`; });
+  s += `<text x="0" y="${pTop + 8}">%</text>`;
+  // icons, temps and hour labels
+  H.forEach((h, i) => { if (i % step) return;
+    s += `<g transform="translate(${x(i) - 9} ${y(h.temp) - 26})">${icon(h.icon, 18, !h.day)}</g>`;
+    s += `<text x="${x(i)}" y="${bot - 20}" text-anchor="middle">${hourSpan === 48 ? hourLabel(h.t) : dayName(h.t.slice(0, 10))}</text>`;
+    s += `<text x="${x(i)}" y="${bot - 6}" text-anchor="middle" style="fill:#8a9">${f0(h.wind)}</text>`; });
+  s += `<text x="0" y="${bot - 6}" style="fill:#8a9">mph</text>`;
+  s += `<line id="cur" y1="${top - 8}" y2="${bot - 18}" stroke="#fff6" visibility="hidden"/>`;
+  $("t-hourly").innerHTML = `<div><span class="seg" id="span"><span data-h="48" class="${hourSpan === 48 ? "on" : ""}">48 hours</span><span data-h="168" class="${hourSpan === 168 ? "on" : ""}">7 days</span></span>
+    <span class="legend"><i style="background:#ffb347"></i>forecast<i style="background:#7cc4ff44;height:8px"></i>all sources' range<i style="background:#4d9fffaa;height:8px"></i>chance of rain/snow</span></div>
+    <svg id="hsvg" width="${W}" height="${bot}">${s}</svg>`;
+  const svg = $("hsvg"), tip = $("tip");
+  svg.onmousemove = e => {
+    const r = svg.getBoundingClientRect(), i = Math.max(0, Math.min(H.length - 1, Math.round((e.clientX - r.left - 30) / ((W - 44) / (H.length - 1))))), h = H[i];
+    const c = $("cur"); c.setAttribute("x1", x(i)); c.setAttribute("x2", x(i)); c.setAttribute("visibility", "visible");
+    const by = Object.entries(h.by || {}).map(([k, v]) => `<div style="color:#aaa">${k}: ${f0(v)}°</div>`).join("");
+    tip.innerHTML = `<b>${dayName(h.t.slice(0, 10))} ${hourLabel(h.t)}</b> ${esc(h.text || "")}<br>${f0(h.temp)}°F (feels ${f0(h.feels)}°) · ${h.pop ?? 0}% · wind ${f0(h.wind)}${h.gust ? "–" + f0(h.gust) : ""} mph${h.aqi != null ? " · AQI " + h.aqi : ""}${by}`;
+    tip.style.display = "block";
+    const z = +document.body.style.zoom || 1, vw = innerWidth / z, vh = innerHeight / z;
+    tip.style.left = Math.max(2, Math.min(e.clientX + 14, vw - tip.offsetWidth - 4)) + "px";
+    tip.style.top = (e.clientY + 14 + tip.offsetHeight > vh ? Math.max(2, e.clientY - tip.offsetHeight - 10) : e.clientY + 14) + "px";
+  };
+  svg.onmouseleave = () => { tip.style.display = "none"; $("cur").setAttribute("visibility", "hidden"); };
+  $("span").onclick = e => { if (e.target.dataset.h) { hourSpan = +e.target.dataset.h; renderHourly(); } };
+}
+
+function renderDaily() {
+  const days = D.days, all = days.flatMap(d => [d.lo_min, d.hi_max]).filter(v => v != null);
+  const mn = Math.min(...all), mx = Math.max(...all), pct = v => (v - mn) / (mx - mn) * 100;
+  const agreeCol = { good: "var(--good)", fair: "var(--fair)", low: "var(--bad)" };
+  const periods = D.periods || [];
+  $("t-daily").innerHTML = days.map((d, i) => {
+    const date = new Date(d.date + "T12:00"), dd = D.detail_days[d.date] || {};
+    const txt = (d.by["NWS (official)"] || {}).text || dd.text || "";
+    const name = i === 0 ? "Today" : dayName(d.date);
+    const myP = periods.filter(p => p.name && periodDate(p) === d.date);
+    const srcRows = Object.entries(d.by).map(([k, v]) => `<tr><td>${k}</td><td style="color:var(--warm)">${f0(v.hi)}°</td><td style="color:var(--cold)">${f0(v.lo)}°</td><td style="color:var(--rain)">${v.pop != null ? v.pop + "%" : ""}</td><td>${esc(v.text || "")}</td></tr>`).join("");
+    return `<div class="day" data-i="${i}">
+      <div class="dn">${name}<small>${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}</small></div>
+      <div>${icon(d.icon, 24)}</div><div class="txt" title="${esc(txt)}">${esc(txt)}</div>
+      <div class="pop">${d.pop ? d.pop + "%" : ""}</div>
+      <div class="lo">${f0(d.lo)}°</div>
+      <div class="bar"><div class="sp" style="left:${pct(d.lo_min ?? d.lo)}%;width:${pct(d.hi_max ?? d.hi) - pct(d.lo_min ?? d.lo)}%"></div>
+        <div class="rng" style="left:${pct(d.lo)}%;width:${Math.max(2, pct(d.hi) - pct(d.lo))}%;background:linear-gradient(90deg,${tempColor(d.lo)},${tempColor(d.hi)})"></div></div>
+      <div class="hi">${f0(d.hi)}°</div>
+      <div class="dot" title="Sources agree: ${d.agree} (highs ${d.hi_min}–${d.hi_max}°, ${d.hi_n} sources)" style="background:${agreeCol[d.agree]}"></div>
+    </div>
+    <div class="detail" id="dd${i}">
+      ${myP.map(p => `<p><b>${p.name}:</b> ${esc(p.detail)}</p>`).join("")}
+      ${dd.sunrise ? `<p>Sunrise ${clock(dd.sunrise)} · sunset ${clock(dd.sunset)} · UV ${dd.uv ?? "–"}${dd.snow ? ` · snow ${dd.snow.toFixed(1)}"` : ""}${dd.precip ? ` · precip ${dd.precip.toFixed(2)}"` : ""} · gusts ${f0(dd.gust)} mph</p>` : ""}
+      <table>${srcRows}</table></div>`;
+  }).join("") + `<p style="color:var(--faint);font-size:11px;margin:8px 0 0">High/low = average of all sources. Thin marks = the coldest low and warmest high any source predicts. Dot = how well the sources agree (green good, yellow fair, red they disagree). Click a day for details.</p>`;
+}
+function periodDate(p) {
+  // NWS period names: "Today", "Tonight", "Wednesday", "Wednesday Night"...
+  const base = new Date(D.updated); const names = D.days.map(d => d.date);
+  if (/^(today|this afternoon|this morning|tonight|overnight)/i.test(p.name)) return names[0];
+  const wd = p.name.split(" ")[0];
+  return names.find(d => dayName(d, true) === wd);
+}
+
+function renderCompare() {
+  const days = D.days.slice(0, 8), srcs = [...new Set(days.flatMap(d => Object.keys(d.by)))];
+  const cell = (d, s) => { const v = d.by[s]; if (!v || v.hi == null) return `<td style="color:var(--faint)">–</td>`;
+    const dh = v.hi - d.hi, cls = dh >= 4 ? "dev-hi" : dh <= -4 ? "dev-lo" : "";
+    return `<td class="${cls}">${f0(v.hi)}<span style="color:var(--faint)">/</span>${f0(v.lo)}</td>`; };
+  let h = `<h4>Highs / lows by source</h4><table class="cmp"><tr><th></th>${days.map((d, i) => `<th>${i ? dayName(d.date) : "Today"}</th>`).join("")}</tr>`;
+  h += srcs.map(s => `<tr><td>${s}</td>${days.map(d => cell(d, s)).join("")}</tr>`).join("");
+  h += `<tr class="cons"><td>Average</td>${days.map(d => `<td>${f0(d.hi)}/${f0(d.lo)}</td>`).join("")}</tr>`;
+  h += `<tr><td style="color:var(--dim)">Spread (highs)</td>${days.map(d => `<td style="color:var(--dim)">${d.hi_max - d.hi_min}°</td>`).join("")}</tr></table>`;
+  h += `<p style="color:var(--faint);font-size:11px">Red = 4°+ warmer than the average, blue = 4°+ colder.</p>`;
+  h += `<h4>Right now</h4><table class="cmp"><tr><th>Reading</th><th>Temp</th><th>Wind</th><th>Humidity</th><th>Pressure</th></tr>` +
+    D.readings.map(r => `<tr><td>${esc(r.station)}</td><td>${f0(r.temp)}°</td><td>${f0(r.wind)} ${compass(r.dir)}</td><td>${f0(r.rh)}%</td><td>${r.pressure ? (+r.pressure).toFixed(2) : "–"}</td></tr>`).join("") + `</table>`;
+  $("t-compare").innerHTML = h;
+}
+
+function renderAfd() {
+  const a = D.discussion;
+  $("t-afd").innerHTML = a ? `<div style="color:var(--dim);margin-bottom:6px">Written by the NWS forecasters in ${a.office === "MSO" ? "Missoula" : a.office}, issued ${new Date(a.issued).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}</div>
+    <pre class="afd">${esc(a.text.replace(/^[\s\S]*?(\.(DISCUSSION|SYNOPSIS|KEY MESSAGES))/m, "$1").replace(/&&\s*$/m, ""))}</pre>` : "Not available.";
+}
+
+function renderSources() {
+  const S = D.sources;
+  $("t-sources").innerHTML = Object.entries(S).map(([k, s]) => {
+    const col = s.state === "ok" ? "var(--good)" : s.state === "no key" ? "var(--faint)" : s.state === "stale" ? "var(--fair)" : "var(--bad)";
+    const note = s.state === "ok" ? (s.via ? "via " + s.via : "") + (s.fetched ? " · " + ago(new Date(s.fetched * 1000).toISOString()) : "")
+      : s.state === "no key" ? `free key needed · <a href="${s.signup}" target="_blank">sign up</a>` : esc(s.error || s.state);
+    return `<div class="src"><div class="dot" style="background:${col}"></div><div>${k}${s.keyed ? ' <small style="color:var(--faint)">(key)</small>' : ""}</div><div class="note">${note}</div></div>`;
+  }).join("") + `<p style="color:var(--faint);font-size:11px">To add or change a key: right-click the panel → <b>Edit API keys…</b>, paste it, save. It's used from the next refresh. Radar: RainViewer. Map: Esri.</p>`;
+}
+
+// ---------------------------------------------------------------- radar (RainViewer over CARTO dark tiles)
+async function radar() {
+  const box = $("radar"); if (box.dataset.ok) return;
+  const z = 7, L = D.location, n = 2 ** z;
+  const fx = (L.lon + 180) / 360 * n, lat = L.lat * Math.PI / 180;
+  const fy = (1 - Math.log(Math.tan(lat) + 1 / Math.cos(lat)) / Math.PI) / 2 * n;
+  const W = 476, H = 300, ox = W / 2 - (fx % 1) * 256, oy = H / 2 - (fy % 1) * 256, tx = Math.floor(fx), ty = Math.floor(fy);
+  const tiles = []; for (let dx = -2; dx <= 2; dx++) for (let dy = -1; dy <= 1; dy++) tiles.push([dx, dy]);
+  const place = (url, dx, dy, op = 1) => `<img src="${url}" style="left:${ox + dx * 256}px;top:${oy + dy * 256}px;opacity:${op}" onerror="this.remove()">`;
+  box.innerHTML = tiles.map(([dx, dy]) => place(`https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/${z}/${ty + dy}/${tx + dx}`, dx, dy)).join("") +
+    `<div class="layer" style="z-index:4">` + tiles.map(([dx, dy]) => place(`https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/${z}/${ty + dy}/${tx + dx}`, dx, dy)).join("") + `</div>` +
+    `<div class="me" style="left:${W / 2}px;top:${H / 2}px"></div><div class="stamp" id="rstamp"></div><div class="credit">Map © Esri · Radar RainViewer</div>`;
+  try {
+    const m = await (await fetch("https://api.rainviewer.com/public/weather-maps.json")).json();
+    const frames = m.radar.past.slice(-8);
+    const layers = frames.map(f => { const d = document.createElement("div"); d.className = "layer"; d.style.visibility = "hidden";
+      d.innerHTML = tiles.map(([dx, dy]) => place(`${m.host}${f.path}/256/${z}/${tx + dx}/${ty + dy}/2/1_1.png`, dx, dy, .8)).join("");
+      box.insertBefore(d, box.querySelector(".me")); return d; });
+    // Start on the newest frame, hold it ~2 s, then loop through the older ones.
+    let k = layers.length - 1, hold = 0; clearTimeout(radarTimer);
+    const step = () => {
+      layers.forEach((l, j) => l.style.visibility = j === k ? "visible" : "hidden");
+      const t = new Date(frames[k].time * 1000), mins = Math.round((Date.now() - t) / 60000);
+      $("rstamp").textContent = t.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) + (mins > 1 ? ` · ${mins} min ago` : " · latest");
+      const wait = k === layers.length - 1 ? 2000 : 500;
+      k = (k + 1) % layers.length;
+      radarTimer = setTimeout(step, wait);
+    };
+    step();
+    $("radarInfo").textContent = `Last ${frames.length * 10} minutes of radar, looping. Red dot = home.`;
+    box.dataset.ok = 1;
+  } catch (e) { $("radarInfo").textContent = "Radar not available: " + e.message; }
+}
+
+// ---------------------------------------------------------------- events + loading
+const app = () => window.pywebview?.api;     // set when running as the desktop panel
+function showTab(t) {
+  document.querySelectorAll("nav div").forEach(d => d.classList.toggle("on", d.dataset.t === t));
+  document.querySelectorAll(".tab").forEach(d => d.classList.toggle("on", d.id === "t-" + t));
+  if (t === "radar" && D) radar();
+}
+$("nav").onclick = e => { const t = e.target.dataset.t; if (!t) return; showTab(t); app()?.remember("tab", t); };
+document.body.addEventListener("click", e => {
+  const link = e.target.closest("a[href]");
+  if (link && app()) { e.preventDefault(); app().open_url(link.href); return; }
+  const a = e.target.closest(".alert"); if (a) a.classList.toggle("open");
+  const d = e.target.closest(".day"); if (d) $("dd" + d.dataset.i).classList.toggle("open"); });
+function setCompact(on) { document.body.classList.toggle("compact", on); $("mCompact").textContent = on ? "Full size" : "Compact"; }
+$("bCompact").onclick = () => { const on = !document.body.classList.contains("compact"); setCompact(on); app()?.remember("compact", on); };
+$("bRefresh").onclick = () => load(true);
+
+// ---------------------------------------------------------------- desktop panel: drag, menu, size
+let locked = false, dragging = false;
+function setLocked(on) {
+  locked = on;
+  document.querySelectorAll(".drag").forEach(el => el.classList.toggle("pywebview-drag-region", !on && !!app()));
+  $("mLock").textContent = on ? "Unlock position" : "Lock position";
+}
+function setZoom(z) { document.body.style.zoom = z; }
+document.addEventListener("mousedown", e => {
+  if (e.button === 0 && e.target.closest(".pywebview-drag-region") && !e.target.closest(".btn")) { dragging = true; app()?.dragging(true); }
+});
+document.addEventListener("mouseup", () => { if (dragging) { dragging = false; app()?.dragging(false); } });
+const menu = $("menu");
+document.addEventListener("contextmenu", e => {
+  if (!app()) return;
+  e.preventDefault();
+  menu.hidden = false;
+  menu.style.left = Math.min(e.clientX, innerWidth / (+document.body.style.zoom || 1) - menu.offsetWidth - 4) + "px";
+  menu.style.top = Math.min(e.clientY, innerHeight / (+document.body.style.zoom || 1) - menu.offsetHeight - 4) + "px";
+});
+document.addEventListener("click", e => { if (!menu.contains(e.target)) menu.hidden = true; });
+menu.onclick = async e => {
+  const t = e.target, act = t.dataset.act, z = t.dataset.zoom;
+  menu.hidden = true;
+  if (z) { setZoom(+z); app().remember("zoom", +z); }
+  else if (act === "lock") setLocked(await app().toggle_lock());
+  else if (act === "compact") $("bCompact").click();
+  else if (act) app()[act]();
+};
+// Keep the window exactly the size of the panel (it changes with compact mode, alerts, size).
+new ResizeObserver(() => {
+  if (!app()) return;
+  const r = $("panel").getBoundingClientRect();
+  app().fit(Math.ceil(r.right) + 1, Math.ceil(r.bottom) + 1);
+}).observe($("panel"));
+window.addEventListener("pywebviewready", async () => {
+  const s = await app().settings();
+  setZoom(s.zoom); setCompact(s.compact); setLocked(s.locked); showTab(s.tab);
+  const r = $("panel").getBoundingClientRect();
+  app().fit(Math.ceil(r.right) + 1, Math.ceil(r.bottom) + 1);
+});
+
+async function load(force) {
+  try {
+    const r = await fetch("data/latest.json" + (force ? "?force=1" : ""), { cache: "no-store" });
+    D = await r.json();
+    const openDays = [...document.querySelectorAll(".detail.open")].map(x => x.id);
+    render();
+    openDays.forEach(id => $(id)?.classList.add("open"));
+  } catch (e) { $("upd").textContent = "can't load data: " + e.message; }
+}
+load().then(() => {   // ?tab=daily / ?compact: open that way (used for screenshots)
+  if (Q.get("tab")) showTab(Q.get("tab"));
+  if (Q.has("compact")) setCompact(true);
+});
+setInterval(load, 60 * 1000);
+</script>
+</body>
+</html>
