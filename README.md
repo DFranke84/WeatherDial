@@ -74,6 +74,7 @@ size and tab, hides while its monitor is off, and comes back when the monitor is
 | `lat`, `lon` | Your location in decimal degrees. West longitudes are negative, e.g. `-114.3`. Tip: right-click your house in Google Maps and click the numbers to copy them. |
 | `refresh_minutes` | How often the no-key sources (NWS and Open-Meteo) refresh, at least every 2 minutes. Keyed sources keep their own safe pace (see the table below), so this can't use up a key's daily limit. |
 | `weather_display_dir` | Optional. The Weather Display folder, if Weather Display runs your station (see below). Leave it blank otherwise. |
+| `source_minutes` | Optional. How often a particular source refreshes, overriding the pace in the table below, e.g. `{"AccuWeather": 10}`. Use the name shown in the Sources tab; the minimum is 2. Check that source's daily limit first. AccuWeather, for example, uses 2 requests per refresh, so every 10 minutes is about 288 a day. |
 
 Right-click the panel → **Edit location…** to open the file. Your changes are used from the
 next refresh.
@@ -103,7 +104,7 @@ forecast in the average.
 | Weather Display (on this PC) | none | Your Tempest live: read from Weather Display's `sentwurapiddata.txt` | every 30 s |
 | Tempest cloud | `tempest_token`: tempestwx.com → Settings → Data Authorizations → Create Token | Lightning, yesterday's rain, Tempest's own 10-day and hourly forecast | every 5 min |
 | Weather.com | `weathercom`: free for Weather Underground station owners, at wunderground.com/member/api-keys | weather.com's 5-day forecast (this key doesn't include hourly or 7/10-day) | every 30 min |
-| AccuWeather | `accuweather`: developer.accuweather.com (free trial, then paid plans) | 15-day and 72-hour forecast, depending on your plan | every 60 min (~48 requests a day) |
+| AccuWeather | `accuweather`: developer.accuweather.com (free trial, then paid plans) | 15-day and 72-hour forecast, depending on your plan | every 60 min (2 requests each, ~48 a day). The trial allows 500 a day and paid plans more, so set `source_minutes` to refresh it faster. |
 | Pirate Weather | `pirateweather`: free at pirate-weather.apiable.io | 8-day and hourly forecast | every 30 min |
 | WeatherAPI.com | `weatherapi`: free at weatherapi.com | 14-day and hourly forecast (3 days on the free plan after the trial) | every 30 min |
 | Visual Crossing | `visualcrossing`: free at visualcrossing.com | 15-day and hourly forecast | every 60 min |

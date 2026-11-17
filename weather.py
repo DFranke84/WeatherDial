@@ -679,6 +679,9 @@ def fetch(force=False):
         name, fn, keyname, every, signup = entry
         if fn in (src_nws, src_openmeteo):   # no-key sources follow refresh_minutes (min 2)
             every = max(2, cfg.get("refresh_minutes", every))
+        override = (cfg.get("source_minutes") or {}).get(name)
+        if override:                         # per-source setting, e.g. {"AccuWeather": 10}
+            every = max(2, override)
         cfile = CACHE / (fn.__name__ + ".json")
         old = load_json(cfile)
         if keyname and not keys.get(keyname):
