@@ -461,7 +461,11 @@ function renderDaily() {
       <div class="bar"><div class="sp" style="left:${pct(d.lo_min ?? d.lo)}%;width:${pct(d.hi_max ?? d.hi) - pct(d.lo_min ?? d.lo)}%"></div>
         <div class="rng" style="left:${pct(d.lo)}%;width:${Math.max(2, pct(d.hi) - pct(d.lo))}%;background:linear-gradient(90deg,${tempColor(d.lo)},${tempColor(d.hi)})"></div></div>
       <div class="hi">${f0(d.hi)}°</div>
-      <div class="dot" title="Sources agree: ${d.agree} (highs ${d.hi_min}–${d.hi_max}°, ${d.hi_n} sources)" style="background:${agreeCol[d.agree]}"></div>
+      <div class="dot" title="${esc(`How well the sources agree on this day: ${{ good: "GOOD", fair: "FAIR", low: "LOW" }[d.agree] || "–"}\n` +
+        `Highs ${d.hi_min}–${d.hi_max}°, lows ${d.lo_min ?? "–"}–${d.lo_max ?? "–"}° across ${d.hi_n} sources.\n\n` +
+        `Green = good: every source's high and low within 5° of each other.\n` +
+        `Yellow = fair: within 10°.\n` +
+        `Red = low: more than 10° apart, so the forecast for this day is uncertain.`)}" style="background:${agreeCol[d.agree]}"></div>
     </div>
     <div class="detail" id="dd${i}">
       ${myP.map(p => `<p><b>${p.name}:</b> ${esc(p.detail)}</p>`).join("")}
