@@ -489,8 +489,10 @@ def src_accuweather(cfg, keys, clock):
             raise RuntimeError("AccuWeather refused the key (expired trial or wrong key?)")
 
     def first_allowed(kind, options):
-        if memo.get(kind):
+        # Re-check now and then (once a day) in case the plan changed, e.g. after subscribing.
+        if memo.get(kind) in options and time.time() - memo.get(kind + "_checked", 0) < 86400:
             return memo[kind], call(memo[kind])
+        memo[kind + "_checked"] = time.time()
         last = None
         for path in options:
             try:
@@ -507,7 +509,7 @@ def src_accuweather(cfg, keys, clock):
     q = "?details=true&metric=false"
     _, dd = first_allowed("daily", [f"/forecasts/v1/daily/{n}day/{lk}{q}" for n in (15, 10, 5)])
     try:
-        _, hh = first_allowed("hourly", [f"/forecasts/v1/hourly/{n}hour/{lk}{q}" for n in (72, 12)])
+        _, hh = first_allowed("hourly", [f"/forecasts/v1/hourly/{n}hour/{lk}{q}" for n in (240, 120, 72, 12)])
     except urllib.error.HTTPError:
         hh = []
     save_json(memo_file, memo)
