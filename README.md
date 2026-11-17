@@ -23,6 +23,9 @@ live readings on top.
   agree.
 - **Compare:** every source's highs and lows side by side, plus the current readings from
   your station, the nearest airport and the model.
+- **Accuracy** (Compare and Sources): a badge per source showing how close its next-day
+  forecasts have come to what your own station measured, over a period you choose (default
+  30 days). See *How accuracy is scored* below.
 - **Radar:** an animated loop of the last 80 minutes, starting on the newest frame.
 - **Health** *(AccuWeather indices, optional)*: today and the next 4 days for health
   (arthritis, sinus, migraine, asthma, COPD, cold, flu, dry skin, pollen, mold, dust) and for
@@ -99,6 +102,7 @@ size and tab, hides while its monitor is off, and comes back when the monitor is
 | `refresh_minutes` | How often the no-key sources (NWS and Open-Meteo) refresh, at least every 2 minutes. Keyed sources keep their own safe pace (see the table below), so this can't use up a key's daily limit. |
 | `weather_display_dir` | Optional. The Weather Display folder, if Weather Display runs your station (see below). Leave it blank otherwise. |
 | `index_groups` | Optional. Which AccuWeather indices the Health tab shows, and in which groups, e.g. `{"Health": [21, 30, -14], "Outdoors": [3, 20, 13]}`. Run `python weather.py --indices` to list every index with its number. |
+| `accuracy_backfill_days` | Optional, default 30. How many past days to fill in for the accuracy scores when you first start (the global models' past forecasts from Open-Meteo, and your Tempest's actual highs and lows). |
 | `source_minutes` | Optional. How often a particular source refreshes, overriding the pace in the table below, e.g. `{"AccuWeather": 10}`. Use the name shown in the Sources tab; the minimum is 2. Check that source's daily limit first. AccuWeather, for example, uses 2 requests per refresh, so every 10 minutes is about 288 a day. |
 
 Right-click the panel → **Edit location…** to open the file. Your changes are used from the
@@ -180,6 +184,28 @@ Underground. Weather Display can do that upload for you.
 - **Hourly line:** the NWS hourly forecast where it has one (about 6 days), then Open-Meteo's
   blend. The shaded band is the range of all sources for that hour.
 
+## How accuracy is scored
+
+- Every few minutes WeatherDial saves each source's forecast for the next 5 days. The one a
+  source made **the day before** a date is its *next-day forecast* for that date.
+- After each day ends, it records the **actual** high and low your station measured: from the
+  Tempest cloud history if you have the token (complete, minute by minute), otherwise from
+  WeatherDial's own readings, but only if it ran all day with no gap over an hour.
+- The badge is the average miss over the period you pick: **±3.3°** means that source's
+  next-day high and low were 3.3° off on average. Lower is better. The colour shows its rank
+  among the sources over that period: green is the most accurate, red the least.
+- **Hover a badge** for details: the miss on highs and lows separately, whether that source
+  tends to run warm or cold at your place, and its rank. Hover **Accuracy ⓘ** for an
+  explanation.
+- **Choose the period** with the *over the last … days* box (7, 14, 30, 60, 90, 180 or 365;
+  default 30). Your choice is remembered.
+- **Getting started:** the five global models are filled in at once for the last 30 days from
+  Open-Meteo's archive of past runs. NWS, AccuWeather, Weather.com, Pirate Weather, WeatherAPI
+  and Tempest's forecast don't publish past forecasts, so they start scoring from the day
+  WeatherDial first saves them. Until a source has 3 days, its badge shows how many it has
+  so far.
+- The history is kept in `data/verify/` (about a year).
+
 ## How fresh is each part?
 
 With the default settings. "Checks" is how often WeatherDial asks; the source itself may
@@ -202,6 +228,7 @@ update less often.
 | Weather.com, Pirate Weather, WeatherAPI, Tomorrow.io | every 30 min | hourly or so |
 | Visual Crossing | every 60 min | hourly or so |
 | Radar | when the Radar tab opens, then every 10 min while it's showing | a new frame every 10 min |
+| Accuracy history (backfill) | every 6 hours | new actuals once a day |
 
 The **Sources** tab shows how long ago each source was last downloaded.
 
@@ -222,7 +249,7 @@ The **Sources** tab shows how long ago each source was last downloaded.
 - `python app.py --server`: a preview in a normal browser at
   http://127.0.0.1:8791/panel.html?preview (only while the panel isn't running).
 - `config.example.json`, `keys.example.json`: templates that `Install.bat` copies.
-- `data/`: cached downloads (made by the app).
+- `data/`: cached downloads (made by the app); `data/verify/` holds the accuracy history.
 - `positions.json`: where the panel sits and its size, tab and settings (made by the app).
 - `weatherdial.log`: messages and errors when it runs without a console.
 

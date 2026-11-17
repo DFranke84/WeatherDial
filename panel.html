@@ -148,7 +148,13 @@
   .chip { display: inline-block; min-width: 92px; padding: 1px 6px; border-radius: 4px; color: #111; font-weight: 600; font-size: 11px; }
   .sq { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: middle; }
   pre.afd { white-space: pre-wrap; font: 12px/1.4 Consolas, monospace; color: var(--afd); margin: 0; }
-  .src { display: grid; grid-template-columns: 12px 1fr auto; gap: 8px; align-items: center; padding: 3px 0; border-bottom: 1px solid var(--hair); }
+  .acc { display: inline-block; min-width: 40px; padding: 0 4px; border-radius: 4px; color: #111; font-size: 11px;
+         font-weight: 600; text-align: center; cursor: help; }
+  .acc.none { background: var(--track); color: var(--faint); font-weight: 400; }
+  .accbar { color: var(--dim); font-size: 12px; margin: 2px 0 6px; cursor: help; }
+  .accbar small { color: var(--faint); }
+  .accsel { background: var(--cell); color: var(--text); border: 1px solid var(--edge); border-radius: 4px; font: inherit; }
+  .src { display: grid; grid-template-columns: 12px 1fr auto 52px; gap: 8px; align-items: center; padding: 3px 0; border-bottom: 1px solid var(--hair); }
   .src .note { color: var(--faint); font-size: 12px; }
   a { color: var(--accent); }
   body.compact nav, body.compact .tab, body.compact .stats .extra { display: none !important; }
@@ -431,18 +437,75 @@ function periodDate(p) {
   return names.find(d => dayName(d, true) === wd);
 }
 
+// ---------------------------------------------------------------- accuracy (forecast vs your station)
+let accDays = 30;   // the period scored; changed with the "over the last … days" box (remembered)
+const ACC_CHOICES = [7, 14, 30, 60, 90, 180, 365];
+const ACC_EXPLAIN = "Accuracy: how close each source's next-day forecast (the one made the day before) came to the " +
+  "high and low your own station actually measured.\n±3.3° = on average its high and low were 3.3° off. Lower is better.\n" +
+  "Colour = rank among the sources over the chosen period: green most accurate, red least.\n" +
+  "Hover a badge for that source's details. Change the period with the 'over the last … days' box.\n" +
+  "The global models were filled in from Open-Meteo's archive of past runs; other sources are scored " +
+  "from the day WeatherDial started saving their forecasts.";
+
+function accuracy() {
+  const rows = (D.verify || []).slice(0, accDays), per = {};
+  for (const r of rows)
+    for (const [s, f] of Object.entries(r.fc))
+      for (const k of ["hi", "lo"])
+        if (f[k] != null && r.actual[k] != null) {
+          const p = per[s] ??= { hi: [], lo: [], days: new Set() };
+          p[k].push(f[k] - r.actual[k]); p.days.add(r.date);
+        }
+  const mean = a => a.reduce((x, y) => x + y, 0) / a.length;
+  const out = {};
+  for (const [s, p] of Object.entries(per)) {
+    const all = [...p.hi, ...p.lo];
+    out[s] = { n: p.days.size, mae: mean(all.map(Math.abs)), bias: mean(all),
+               mhi: p.hi.length ? mean(p.hi.map(Math.abs)) : null, mlo: p.lo.length ? mean(p.lo.map(Math.abs)) : null };
+  }
+  const ranked = Object.entries(out).filter(([, a]) => a.n >= 3).sort((a, b) => a[1].mae - b[1].mae);
+  ranked.forEach(([s], i) => { out[s].rank = i + 1; out[s].of = ranked.length; });
+  return { by: out, days: rows.length };
+}
+function accBadge(src, A) {
+  const a = A.by[src];
+  if (!a || !a.rank) {
+    const n = a ? a.n : 0;
+    return `<span class="acc none" title="${esc(`${src}: not enough history yet (${n} day${n === 1 ? "" : "s"} scored, needs 3).\n` +
+      "WeatherDial saves each source's forecasts and checks them against your station every day, so this fills in by itself.")}">${n ? n + "d" : "…"}</span>`;
+  }
+  const g = a.of > 1 ? 5 - 4 * (a.rank - 1) / (a.of - 1) : 5;
+  const lean = Math.abs(a.bias) < 0.75 ? "No consistent lean warm or cold."
+    : `Tends to run ${Math.abs(a.bias).toFixed(1)}° too ${a.bias > 0 ? "warm" : "cold"}.`;
+  const tip = `${src}: next-day forecast vs your station, last ${accDays} days (${a.n} days scored)\n` +
+    `Off by ${a.mae.toFixed(1)}° on average (highs ${a.mhi?.toFixed(1) ?? "–"}°, lows ${a.mlo?.toFixed(1) ?? "–"}°).\n` +
+    `${lean}\nRanks #${a.rank} of ${a.of}. Lower is better.`;
+  return `<span class="acc" style="background:${goodCol(Math.round(g))}" title="${esc(tip)}">±${a.mae.toFixed(1)}°</span>`;
+}
+function accSelector(A) {
+  return `<div class="accbar" title="${esc(ACC_EXPLAIN)}">Accuracy ⓘ over the last
+    <select class="accsel">${ACC_CHOICES.map(n => `<option value="${n}" ${n === accDays ? "selected" : ""}>${n}</option>`).join("")}</select>
+    days <small>(${A.days} day${A.days === 1 ? "" : "s"} of your station's highs and lows so far)</small></div>`;
+}
+document.addEventListener("change", e => {
+  if (!e.target.classList.contains("accsel")) return;
+  accDays = +e.target.value; app()?.remember("acc_days", accDays);
+  renderCompare(); renderSources();
+});
+
 function renderCompare() {
   const days = D.days.slice(0, 8), srcs = [...new Set(days.flatMap(d => Object.keys(d.by)))];
+  const A = accuracy();
   const dev = (v, avg) => v == null || avg == null ? "" : v - avg >= 4 ? "dev-hi" : v - avg <= -4 ? "dev-lo" : "";
   const vs = (v, avg) => { if (v == null) return "no forecast"; const d = Math.round(v - avg);
     return `${f0(v)}° (${d === 0 ? "same as" : Math.abs(d) + "° " + (d > 0 ? "warmer than" : "colder than")} the ${f0(avg)}° average)`; };
   const cell = (d, s, i) => { const v = d.by[s]; if (!v || (v.hi == null && v.lo == null)) return `<td style="color:var(--faint)" title="${s} has no forecast for this day">–</td>`;
     const tip = `${s}, ${i ? dayName(d.date, true) : "today"}\nHigh ${vs(v.hi, d.hi)}\nLow ${vs(v.lo, d.lo)}${v.pop != null ? "\nChance of rain/snow " + v.pop + "%" : ""}${v.text ? "\n" + v.text : ""}`;
     return `<td title="${esc(tip)}"><span class="${dev(v.hi, d.hi)}">${f0(v.hi)}</span><span style="color:var(--faint)">/</span><span class="${dev(v.lo, d.lo)}">${f0(v.lo)}</span></td>`; };
-  let h = `<h4>Highs / lows by source</h4><table class="cmp"><tr><th></th>${days.map((d, i) => `<th>${i ? dayName(d.date) : "Today"}</th>`).join("")}</tr>`;
-  h += srcs.map(s => `<tr><td>${s}</td>${days.map((d, i) => cell(d, s, i)).join("")}</tr>`).join("");
-  h += `<tr class="cons"><td>Average</td>${days.map(d => `<td title="Average of ${d.hi_n} sources: high ${f0(d.hi)}°, low ${f0(d.lo)}°">${f0(d.hi)}/${f0(d.lo)}</td>`).join("")}</tr>`;
-  h += `<tr><td style="color:var(--dim)">Spread (highs)</td>${days.map(d => `<td style="color:var(--dim)" title="Warmest high ${d.hi_max}° minus coldest high ${d.hi_min}°. Bigger = the sources disagree more.">${d.hi_max - d.hi_min}°</td>`).join("")}</tr></table>`;
+  let h = `<h4>Highs / lows by source</h4>${accSelector(A)}<table class="cmp"><tr><th></th><th title="${esc(ACC_EXPLAIN)}">Accuracy ⓘ</th>${days.map((d, i) => `<th>${i ? dayName(d.date) : "Today"}</th>`).join("")}</tr>`;
+  h += srcs.map(s => `<tr><td>${s}</td><td>${accBadge(s, A)}</td>${days.map((d, i) => cell(d, s, i)).join("")}</tr>`).join("");
+  h += `<tr class="cons"><td>Average</td><td></td>${days.map(d => `<td title="Average of ${d.hi_n} sources: high ${f0(d.hi)}°, low ${f0(d.lo)}°">${f0(d.hi)}/${f0(d.lo)}</td>`).join("")}</tr>`;
+  h += `<tr><td style="color:var(--dim)">Spread (highs)</td><td></td>${days.map(d => `<td style="color:var(--dim)" title="Warmest high ${d.hi_max}° minus coldest high ${d.hi_min}°. Bigger = the sources disagree more.">${d.hi_max - d.hi_min}°</td>`).join("")}</tr></table>`;
   h += `<p style="color:var(--dim);font-size:11px;margin-top:6px">Each cell is <b>high/low</b>. <span class="dev-hi">Red</span> = 4° or more <b>warmer</b> than the average of all sources that day; <span class="dev-lo">blue</span> = 4° or more <b>colder</b>. White = within 4°. Hover over a cell for details.</p>`;
   h += `<h4>Right now</h4><table class="cmp"><tr><th>Reading</th><th>Temp</th><th>Wind</th><th>Humidity</th><th>Pressure</th></tr>` +
     D.readings.map(r => `<tr><td>${esc(r.station)}</td><td>${f0(r.temp)}°</td><td>${f0(r.wind)} ${compass(r.dir)}</td><td>${f0(r.rh)}%</td><td>${r.pressure ? (+r.pressure).toFixed(2) : "–"}</td></tr>`).join("") + `</table>`;
@@ -456,13 +519,14 @@ function renderAfd() {
 }
 
 function renderSources() {
-  const S = D.sources;
-  $("t-sources").innerHTML = Object.entries(S).map(([k, s]) => {
+  const S = D.sources, A = accuracy();
+  const forecasts = new Set(D.days.flatMap(d => Object.keys(d.by)));   // sources that make forecasts
+  $("t-sources").innerHTML = accSelector(A) + Object.entries(S).map(([k, s]) => {
     const col = s.state === "ok" ? "var(--good)" : s.state === "no key" ? "var(--faint)" : s.state === "stale" ? "var(--fair)" : "var(--bad)";
     const note = s.state === "ok" ? [s.via ? "via " + s.via : "", s.fetched ? ago(new Date(s.fetched * 1000).toISOString()) : ""].filter(Boolean).join(" · ")
       : s.state === "no key" ? `${/accuweather/i.test(k) ? "key needed" : "free key needed"} · <a href="${s.signup}" target="_blank">sign up</a>`
       : esc(s.error || s.state) + (s.retry ? ` · tries again ${hm(new Date(s.retry * 1000).toISOString())}` : "");
-    return `<div class="src"><div class="dot" style="background:${col}"></div><div>${k}${s.keyed ? ' <small style="color:var(--faint)">(key)</small>' : ""}</div><div class="note">${note}</div></div>`;
+    return `<div class="src"><div class="dot" style="background:${col}"></div><div>${k}${s.keyed ? ' <small style="color:var(--faint)">(key)</small>' : ""}</div><div class="note">${note}</div><div>${forecasts.has(k) ? accBadge(k, A) : ""}</div></div>`;
   }).join("") + `<p style="color:var(--faint);font-size:11px">To add or change a key: right-click the panel → <b>Edit API keys…</b>, paste it, save. It's used from the next refresh. Radar: RainViewer. Map: Esri.</p>`;
 }
 
@@ -634,11 +698,13 @@ window.addEventListener("pywebviewready", async () => {
   if (s.tabh) setTabHeight(s.tabh, false);
   if (s.pw) setPanelWidth(s.pw, false);
   setTheme(s.theme || "dark", false);
+  if (s.acc_days) { accDays = s.acc_days; if (D) { renderCompare(); renderSources(); } }
   const r = $("panel").getBoundingClientRect();
   app().fit(Math.ceil(r.right) + 1, Math.ceil(r.bottom) + 1);
 });
 
 async function load(force) {
+  if (!force && document.activeElement?.classList.contains("accsel")) return;   // dropdown open: wait
   try {
     const r = await fetch("data/latest.json" + (force ? "?force=1" : ""), { cache: "no-store" });
     D = await r.json();
@@ -656,6 +722,7 @@ async function load(force) {
 load().then(() => {   // ?tab=daily / ?compact: open that way (used for screenshots)
   if (Q.get("tab")) showTab(Q.get("tab"));
   if (Q.has("compact")) setCompact(true);
+  if (Q.get("acc")) { accDays = +Q.get("acc"); renderCompare(); renderSources(); }
   if (Q.get("pw")) setPanelWidth(+Q.get("pw"), false);
   if (Q.get("theme")) setTheme(Q.get("theme"), false);
   if (Q.get("tabh")) setTabHeight(+Q.get("tabh"), false, true);

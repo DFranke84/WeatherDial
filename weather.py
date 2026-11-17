@@ -398,21 +398,154 @@ def src_tempest(cfg, keys, clock):
                "icon": text_icon(x.get("conditions"))} for x in f.get("hourly", [])]
     # Highest wind and gust today and yesterday, from the station's own history
     # (complete, whether or not WeatherDial was running).
-    wind_max = {}
+    wind_max, temps = {}, {}
     if device:
         midnight = clock.from_epoch(time.time()).replace(hour=0, minute=0, second=0, microsecond=0)
         start = int(time.time() - (clock.from_epoch(time.time()) - midnight).total_seconds()) - 86400
         h = get(f"https://swd.weatherflow.com/swd/rest/observations/device/{device}"
                 f"?time_start={start}&time_end={int(time.time())}&token={urllib.parse.quote(tok)}")
-        for ob in h.get("obs") or []:
-            t = clock.from_epoch(ob[0])
-            day = wind_max.setdefault(clock.day(t), {"wind": None, "gust": None})
-            for k, i in (("wind", 2), ("gust", 3)):
-                v = ob[i] if len(ob) > i else None
-                if v is not None and (day[k] is None or v * 2.23694 > day[k]):
-                    day[k], day[k + "_at"] = round(v * 2.23694), t.strftime("%H:%M")
+        wind_max = wind_from_obs(h.get("obs") or [], clock)
+        temps = temps_from_obs(h.get("obs") or [], clock)
     return {"daily": daily, "hourly": hourly, "now": now,
-            "extra": {"station_id": sid, "wind_max": wind_max}}
+            "extra": {"station_id": sid, "device_id": device, "wind_max": wind_max, "temps": temps}}
+
+
+def wind_from_obs(obs, clock):
+    """Tempest observations -> {date: {wind, gust, wind_at, gust_at}} in mph."""
+    out = {}
+    for ob in obs:
+        t = clock.from_epoch(ob[0])
+        day = out.setdefault(clock.day(t), {"wind": None, "gust": None})
+        for k, i in (("wind", 2), ("gust", 3)):
+            v = ob[i] if len(ob) > i else None
+            if v is not None and (day[k] is None or v * 2.23694 > day[k]):
+                day[k], day[k + "_at"] = round(v * 2.23694), t.strftime("%H:%M")
+    return out
+
+
+def temps_from_obs(obs, clock):
+    """Tempest observations -> {date: {hi, lo, first, last, n}} in °F (actual daily high/low)."""
+    out = {}
+    for ob in obs:
+        if len(ob) < 8 or ob[7] is None:
+            continue
+        t = clock.from_epoch(ob[0])
+        f = ob[7] * 9 / 5 + 32
+        d = out.setdefault(clock.day(t), {"hi": f, "lo": f, "first": t.strftime("%H:%M"), "n": 0})
+        d["hi"], d["lo"], d["last"], d["n"] = max(d["hi"], f), min(d["lo"], f), t.strftime("%H:%M"), d["n"] + 1
+    for d in out.values():
+        d["hi"], d["lo"] = round(d["hi"], 1), round(d["lo"], 1)
+    return out
+
+
+# ---------------------------------------------------------------- accuracy (forecast vs actual)
+# forecasts.json: {date: {source: {"1": {hi, lo}, "2": ...}}}  - the last forecast each source made
+#                 1, 2, ... days before that date
+# actuals.json:   {date: {hi, lo, how}}                        - what your station measured
+
+VDIR = DATA / "verify"
+_saved_text = {}
+
+
+def save_if_changed(path, obj):
+    text = json.dumps(obj, separators=(",", ":"), sort_keys=True)
+    if _saved_text.get(path) != text:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(path)
+        _saved_text[path] = text
+
+
+def record_forecasts(fc_daily, today):
+    path = VDIR / "forecasts.json"
+    arc = load_json(path, {})
+    t0 = dt.date.fromisoformat(today)
+    for src, days in fc_daily.items():
+        for d in days:
+            lead = (dt.date.fromisoformat(d["date"]) - t0).days
+            if 1 <= lead <= 5 and (d.get("hi") is not None or d.get("lo") is not None):
+                arc.setdefault(d["date"], {}).setdefault(src, {})[str(lead)] = {"hi": d.get("hi"), "lo": d.get("lo")}
+    cutoff = (t0 - dt.timedelta(days=400)).isoformat()
+    save_if_changed(path, {k: v for k, v in arc.items() if k >= cutoff})
+
+
+RANK = {"Tempest cloud": 3, "WeatherDial log": 1}   # better source of actuals wins
+
+
+def record_actuals(new):
+    """new: {date: {hi, lo, how}} for complete past days."""
+    if not new:
+        return
+    path = VDIR / "actuals.json"
+    act = load_json(path, {})
+    for date, a in new.items():
+        old = act.get(date)
+        if not old or RANK.get(a["how"], 0) >= RANK.get(old.get("how"), 0):
+            act[date] = a
+    save_if_changed(path, act)
+
+
+def src_backfill(cfg, keys, clock):
+    """Once in a while: fill the accuracy history for the past `accuracy_backfill_days`
+    (default 30): the global models' next-day forecasts from Open-Meteo's archive of past
+    runs, and your Tempest's actual daily highs/lows (one call per missing day, max 31 a run)."""
+    days = int(cfg.get("accuracy_backfill_days", 30))
+    today = clock.from_epoch(time.time()).date()
+    dates = [(today - dt.timedelta(days=i)).isoformat() for i in range(1, days + 1)]
+    done = {"models": 0, "actuals": 0}
+
+    path = VDIR / "forecasts.json"
+    arc = load_json(path, {})
+    q = (f"latitude={cfg['lat']}&longitude={cfg['lon']}&hourly=temperature_2m_previous_day1"
+         f"&models={','.join(OM_MODELS)}&past_days={min(days, 92)}&forecast_days=1"
+         "&temperature_unit=fahrenheit&timezone=auto")
+    h = get("https://previous-runs-api.open-meteo.com/v1/forecast?" + q)["hourly"]
+    for m, name in OM_MODELS.items():
+        vals = h.get(f"temperature_2m_previous_day1_{m}") or []
+        per = {}
+        for t, v in zip(h["time"], vals):
+            if v is not None:
+                per.setdefault(t[:10], []).append(v)
+        for date, vs in per.items():
+            if date in dates and len(vs) >= 20 and "1" not in arc.get(date, {}).get(name, {}):
+                arc.setdefault(date, {}).setdefault(name, {})["1"] = {"hi": round(max(vs), 1), "lo": round(min(vs), 1)}
+                done["models"] += 1
+    save_if_changed(path, arc)
+
+    tok = keys.get("tempest_token")
+    if tok:
+        have = load_json(VDIR / "actuals.json", {})
+        missing = [d for d in dates if (have.get(d) or {}).get("how") != "Tempest cloud"][:31]
+        if missing:
+            st = get("https://swd.weatherflow.com/swd/rest/stations?token=" + urllib.parse.quote(tok))
+            station = next((s for s in st["stations"] if s["station_id"] == cfg.get("tempest_station_id")),
+                           st["stations"][0])
+            device = next((dv["device_id"] for dv in station.get("devices", []) if dv.get("device_type") == "ST"), None)
+            new = {}
+            for date in missing if device else []:
+                start = int((dt.datetime.fromisoformat(date).replace(tzinfo=UTC) - clock.off).timestamp())
+                o = get(f"https://swd.weatherflow.com/swd/rest/observations/device/{device}"
+                        f"?time_start={start}&time_end={start + 86399}&token={urllib.parse.quote(tok)}")
+                t = temps_from_obs(o.get("obs") or [], clock).get(date)
+                if t and t["n"] >= 1000:   # most of the day's minutes present
+                    new[date] = {"hi": t["hi"], "lo": t["lo"], "how": "Tempest cloud"}
+            record_actuals(new)
+            done["actuals"] = len(new)
+    return {"daily": [], "hourly": [], "backfill": done}
+
+
+def verify_table(today, keep=365):
+    """Day-by-day list for the panel: actual high/low + each source's next-day forecast."""
+    arc = load_json(VDIR / "forecasts.json", {})
+    act = load_json(VDIR / "actuals.json", {})
+    rows = []
+    for date in sorted(act, reverse=True)[:keep]:
+        if date >= today:
+            continue
+        fc = {src: v["1"] for src, v in (arc.get(date) or {}).items() if "1" in v}
+        rows.append({"date": date, "actual": act[date], "fc": fc})
+    return rows
 
 
 WD_WEATHER = {"RA": "Rain", "-RA": "Light rain", "+RA": "Heavy rain", "SN": "Snow", "-SN": "Light snow",
@@ -683,6 +816,7 @@ SOURCES = [
     ("Open-Meteo", src_openmeteo, None, 15, None),
     ("models", src_openmeteo_models, None, 60, None),
     ("Air quality", src_air, None, 30, None),
+    ("Accuracy history", src_backfill, None, 360, None),
     ("Tempest (live, local)", src_weather_display, None, 0, None),
     ("Your Tempest", src_tempest, "tempest_token", 5, "https://tempestwx.com/settings/tokens"),
     ("Weather.com", src_weathercom, "weathercom", 30, "https://www.wunderground.com/member/api-keys"),
@@ -743,12 +877,26 @@ def track_wind(now, today, now_local, history=None):
     if day.get("date") != today:
         if day.get("date"):
             log["yesterday"] = day
+            # A whole day watched with no gap over an hour also counts as an "actual"
+            # for the accuracy scores (used when there's no Tempest cloud history).
+            if (day.get("t_hi") is not None and day.get("since", "99") <= "00:30"
+                    and day.get("last", "") >= "23:30" and day.get("gap", 999) <= 60):
+                record_actuals({day["date"]: {"hi": day["t_hi"], "lo": day["t_lo"], "how": "WeatherDial log"}})
         day = {"date": today, "since": now_local.strftime("%H:%M"), "wind": None, "gust": None}
     hhmm = now_local.strftime("%H:%M")
     for k in ("wind", "gust"):
         v = now.get(k)
         if v is not None and (day.get(k) is None or v > day[k]):
             day[k], day[k + "_at"] = v, hhmm
+    temp = now.get("temp")
+    if temp is not None:
+        mins = now_local.hour * 60 + now_local.minute
+        if day.get("last"):
+            h, m = map(int, day["last"].split(":"))
+            day["gap"] = max(day.get("gap", 0), mins - (h * 60 + m))
+        day["last"] = hhmm
+        day["t_hi"] = temp if day.get("t_hi") is None else max(day["t_hi"], temp)
+        day["t_lo"] = temp if day.get("t_lo") is None else min(day["t_lo"], temp)
     log["today"] = day
     save_json(path, log)
     y = log.get("yesterday")
@@ -887,6 +1035,12 @@ def fetch(force=False):
     if readings:
         track_wind(readings[0], today, now_local, tem.get("extra", {}).get("wind_max"))
 
+    # Accuracy: remember every source's forecasts; record finished days' actual high/low.
+    record_forecasts(fc_daily, today)
+    record_actuals({d: {"hi": t["hi"], "lo": t["lo"], "how": "Tempest cloud"}
+                    for d, t in (tem.get("extra", {}).get("temps") or {}).items()
+                    if d < today and t["first"] <= "00:30" and t["last"] >= "23:00"})
+
     # Optional AccuWeather extras: shown only when available (and MinuteCast only while fresh).
     mc = (results.get("AccuWeather MinuteCast") or {}).get("minutecast")
     mc_age = time.time() - (status.get("AccuWeather MinuteCast") or {}).get("fetched", 0)
@@ -917,6 +1071,7 @@ def fetch(force=False):
         "sky": {"today": sun.get(today), "moon": moon(dt.datetime.now(UTC))},
         "minutecast": minutecast,
         "indices": indices,
+        "verify": verify_table(today),
         "sources": status,
     }
     save_json(DATA / "latest.json", out)
