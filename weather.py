@@ -409,9 +409,12 @@ def src_tempest(cfg, keys, clock):
     # station pressure (mb) through the last day, for the barometer's history needle
     obs = (h.get("obs") or []) if device else []
     p_hist = [[ob[0], ob[6]] for ob in obs if len(ob) > 6 and ob[6]]
+    # temperature (°F) and wind (avg, gust mph) through the last day, for the trend graphs
+    t_hist = [[ob[0], round(ob[7] * 9 / 5 + 32, 1)] for ob in obs if len(ob) > 7 and ob[7] is not None]
+    w_hist = [[ob[0], round((ob[2] or 0) * 2.23694, 1), round((ob[3] or 0) * 2.23694, 1)] for ob in obs if len(ob) > 3]
     return {"daily": daily, "hourly": hourly, "now": now,
             "extra": {"station_id": sid, "device_id": device, "wind_max": wind_max, "temps": temps,
-                      "p_hist": p_hist}}
+                      "p_hist": p_hist, "t_hist": t_hist, "w_hist": w_hist}}
 
 
 def wind_from_obs(obs, clock):
@@ -896,10 +899,41 @@ def gauge_data(now, tem_extra, today):
         older = [p for p in hist if t - p[0] >= ago]
         return older[-1][1] if older and t - older[-1][0] <= ago + 1800 else None
 
-    sampled, last = [], 0
-    for e, v in hist:
-        if e - last >= 900:           # a point every 15 minutes is plenty for a graph
-            sampled.append([int(e), v]); last = e
+    def sample(rows):                 # a point every 15 minutes is plenty for a graph
+        out, last = [], 0
+        for r in rows:
+            if r[0] - last >= 900:
+                out.append([int(r[0])] + list(r[1:])); last = r[0]
+        return out
+    sampled = sample(hist)
+
+    # Temperature and wind for the trend graphs: Tempest history, else our own 5-minute log
+    # of whatever station supplies "now" (kept 26 hours).
+    hpath = DATA / "hist_log.json"
+    hl = [r for r in load_json(hpath, []) if t - r[0] <= 26 * 3600]
+    if now.get("temp") is not None and (not hl or t - hl[-1][0] >= 300):
+        hl.append([t, now.get("temp"), now.get("wind"), now.get("gust")])
+        save_json(hpath, hl)
+    th = [r for r in tem_extra.get("t_hist") or [] if t - r[0] <= 26 * 3600]
+    wh = [r for r in tem_extra.get("w_hist") or [] if t - r[0] <= 26 * 3600]
+    if th:
+        th += [[r[0], r[1]] for r in hl if r[0] > th[-1][0]]
+    else:
+        th = [[r[0], r[1]] for r in hl]
+    if wh:
+        wh += [[r[0], r[2], r[3]] for r in hl if r[0] > wh[-1][0] and r[2] is not None]
+    else:
+        wh = [[r[0], r[2], r[3]] for r in hl if r[2] is not None]
+    # wind: keep the strongest gust inside each 15-minute step, not just the first reading
+    w_s, bucket = [], None
+    for e, avg, gust in wh:
+        if bucket and e - bucket[0] < 900:
+            bucket[1] = max(bucket[1], avg or 0); bucket[2] = max(bucket[2], gust or 0)
+        else:
+            if bucket: w_s.append(bucket)
+            bucket = [int(e), avg or 0, gust or 0]
+    if bucket: w_s.append(bucket)
+
     day = (tem_extra.get("temps") or {}).get(today)
     if not day:
         own_day = load_json(DATA / "wind_max.json", {}).get("today") or {}
@@ -910,6 +944,7 @@ def gauge_data(now, tem_extra, today):
         diff = float(p_now) - p3
         now["trend"] = "rising" if diff > .03 else "falling" if diff < -.03 else "steady"
     return {"p_hist": sampled, "p_3h": p3, "p_24h": at(24 * 3600),
+            "t_hist": sample(th), "w_hist": w_s,
             "t_today": {"hi": day["hi"], "lo": day["lo"]} if day else None}
 
 

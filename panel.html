@@ -621,58 +621,207 @@ function needle(a, len, tail, w, col, extra = "") {   // a pointer drawn pointin
   return `<g transform="rotate(${a} 200 200)" ${extra}><path d="M${200 - w} 200 L200 ${200 - len} L${200 + w} 200 L200 ${200 + tail}Z" style="fill:${col}"/></g>`;
 }
 
+// Classic barometer, laid out like the Rainmeter "WeatherStation" barometer: pressure needle
+// round the whole dial (29 left, 30 top, 31 right), a gold reference needle, a red thermometer
+// needle pivoting below the centre across a curved scale, and four small corner dials.
+const BP2A = p => (p - 30) * 90;                                  // inHg -> degrees, 0 = up
+const BT2A = t => 257 - (Math.max(23, Math.min(113, t)) - 23) / 90 * 152;   // °F -> 257°..105°
+const polc = (cx, cy, a, r) => [cx + r * Math.sin(a * Math.PI / 180), cy - r * Math.cos(a * Math.PI / 180)];
+const arcPath = (cx, cy, r, a1, a2) => { const [x1, y1] = polc(cx, cy, a1, r), [x2, y2] = polc(cx, cy, a2, r);
+  return `M${x1} ${y1} A${r} ${r} 0 ${Math.abs(a2 - a1) > 180 ? 1 : 0} ${a2 > a1 ? 1 : 0} ${x2} ${y2}`; };
+const tk = (cx, cy, a, r1, r2, w, c) => { const [x1, y1] = polc(cx, cy, a, r1), [x2, y2] = polc(cx, cy, a, r2);
+  return `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${c}" stroke-width="${w}"/>`; };
+const lbl = (cx, cy, a, r, txt, font, c, rotate = false) => { const [x, y] = polc(cx, cy, a, r);
+  return `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" dy=".35em" text-anchor="middle" ${rotate ? `transform="rotate(${a} ${x.toFixed(1)} ${y.toFixed(1)})"` : ""} style="fill:${c};font:${font}">${txt}</text>`; };
+
 function classicBarometer(n, g) {
-  const ink = "#2b2620", face = "#f6f1e4";
-  let s = `<defs><radialGradient id="rim" cx="40%" cy="35%"><stop offset="0" stop-color="#f1dca4"/><stop offset=".6" stop-color="#b58e4f"/><stop offset="1" stop-color="#7d5d2e"/></radialGradient>
-    <radialGradient id="glass" cx="35%" cy="25%"><stop offset="0" stop-color="#fff" stop-opacity=".35"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/></radialGradient></defs>
-    <circle cx="200" cy="200" r="198" fill="url(#rim)"/><circle cx="200" cy="200" r="184" fill="${face}"/>
-    <circle cx="200" cy="200" r="184" fill="none" stroke="#00000033"/>`;
-  // inches of mercury: outer scale
-  for (let p = 28; p <= 31.0001; p += 0.05) {
-    const a = P2A(p), big = Math.abs(p * 2 - Math.round(p * 2)) < 1e-6, ten = Math.abs(p * 10 - Math.round(p * 10)) < 1e-6;
-    s += ln(a, 172, big ? 156 : ten ? 161 : 166, `stroke="${ink}" stroke-width="${big ? 2 : 1}"`);
-    if (big) { const [x, y] = pol(a, 145); s += `<text x="${x}" y="${y + 4}" text-anchor="middle" style="fill:${ink};font:${Number.isInteger(+p.toFixed(1)) ? "700 14px" : "11px"} Georgia,serif">${(+p.toFixed(1)).toString()}</text>`; }
+  const ink = "#222", soft = "#555", serif = "'Times New Roman',Georgia,serif", olde = "'Old English Text MT','UnifrakturMaguntia',Georgia,serif";
+  const C = 200, TY = 252;            // dial centre; thermometer pivot (below the centre, like the skin)
+  let s = `<defs>
+      <radialGradient id="bface" cx="45%" cy="40%" r="65%"><stop offset="0" stop-color="#ffffff"/><stop offset=".8" stop-color="#f7f7f5"/><stop offset="1" stop-color="#e4e3df"/></radialGradient>
+      <radialGradient id="bdial" cx="45%" cy="40%" r="70%"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#e8e8e6"/></radialGradient>
+      <filter id="bshadow" x="-10%" y="-10%" width="120%" height="120%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity=".45"/></filter>
+      <path id="bfall" d="${arcPath(C, C, 84, -140, -9)}"/><path id="brise" d="${arcPath(C, C, 84, 9, 140)}"/></defs>
+    <circle cx="${C}" cy="${C}" r="186" fill="url(#bface)" stroke="#9c9c9c" stroke-width="1.5" filter="url(#bshadow)"/>
+    <circle cx="${C}" cy="${C}" r="181" fill="none" stroke="#d5d5d2" stroke-width="1"/>`;
+
+  // the traditional words, in blackletter round the rim
+  [["Stormy", 28.8], ["Rain", 29.38], ["Change", 30], ["Fair", 30.62], ["Very Dry", 31.2]].forEach(([w, p]) =>
+    s += lbl(C, C, BP2A(p), 165, w, `26px ${olde}`, ink, true));
+
+  // inches of mercury: ring, ticks every 0.1, 29 / 30 / 31 and the half-inch "5"s
+  s += `<path d="${arcPath(C, C, 136, BP2A(28.7), BP2A(31.3))}" fill="none" stroke="${ink}" stroke-width="1.2"/>
+        <path d="${arcPath(C, C, 132, BP2A(28.7), BP2A(31.3))}" fill="none" stroke="${ink}" stroke-width=".6"/>`;
+  for (let i = 287; i <= 313; i++) {
+    const p = i / 10, a = BP2A(p), whole = i % 10 === 0, half = i % 5 === 0;
+    s += tk(C, C, a, 136, whole ? 124 : half ? 126 : 131, whole ? 2.2 : half ? 1.6 : 1, ink);
+    if (whole) s += lbl(C, C, a, 148, String(p), `700 17px ${serif}`, ink);
+    else if (half) s += lbl(C, C, a, 146, "5", `13px ${serif}`, ink);
   }
-  s += `<path d="M${pol(-135, 172).join(" ")} A172 172 0 1 1 ${pol(135, 172).join(" ")}" fill="none" stroke="${ink}" stroke-width="1.2"/>`;
-  // millibars: inner scale
-  for (let mb = 950; mb <= 1050; mb += 5) {
-    const a = P2A(mb * 0.02953), ten = mb % 10 === 0;
-    s += ln(a, 128, ten ? 120 : 124, `stroke="${ink}" stroke-width="${ten ? 1.2 : .8}"`);
-    if (mb % 20 === 0) { const [x, y] = pol(a, 110); s += `<text x="${x}" y="${y + 3}" text-anchor="middle" style="fill:${ink};font:9px Georgia,serif">${mb}</text>`; }
+  // millibars: ticks every 2 mb, labels every 10
+  s += `<path d="${arcPath(C, C, 114, BP2A(970 * .02953), BP2A(1060 * .02953))}" fill="none" stroke="${ink}" stroke-width=".7"/>`;
+  for (let mb = 970; mb <= 1060; mb += 2) {
+    const a = BP2A(mb * .02953), ten = mb % 10 === 0;
+    s += tk(C, C, a, 114, ten ? 106 : 110, ten ? 1.4 : .7, ink);
+    if (ten) s += lbl(C, C, a, 97, String(mb), `9px ${serif}`, ink, true);
   }
-  s += `<path d="M${pol(-135, 128).join(" ")} A128 128 0 1 1 ${pol(135, 128).join(" ")}" fill="none" stroke="${ink}" stroke-width=".8"/>`;
-  // the traditional words
-  [["STORMY", 28.55], ["RAIN", 29.1], ["CHANGE", 29.6], ["FAIR", 30.1], ["VERY DRY", 30.65]].forEach(([w, p]) => {
-    const a = P2A(p);
-    s += `<g transform="rotate(${a} 200 200)"><text x="200" y="${200 - 86}" text-anchor="middle" style="fill:#7a1f12;font:italic 700 15px Georgia,serif;letter-spacing:.5px">${w}</text></g>`;
-  });
-  s += `<text x="200" y="244" text-anchor="middle" style="fill:${ink};font:9px Georgia,serif;letter-spacing:1px">BAROMETER</text>
-    <text x="200" y="256" text-anchor="middle" style="fill:${ink};font:7.5px Georgia,serif;letter-spacing:1px">INCHES · MILLIBARS</text>`;
-  // thermometer: bottom arc, °F outside, °C inside
-  s += `<path d="M${pol(220, 160).join(" ")} A160 160 0 0 0 ${pol(140, 160).join(" ")}" fill="none" stroke="${ink}" stroke-width="1"/>`;
-  for (let t = 20; t <= 110; t += 2) {
-    const a = T2A(t), ten = t % 10 === 0;
-    s += ln(a, 160, ten ? 170 : 165, `stroke="${ink}" stroke-width="${ten ? 1.4 : .7}"`);
-    if (ten && t % 20 === 0) { const [x, y] = pol(a, 178); s += `<text x="${x}" y="${y + 3}" text-anchor="middle" style="fill:${ink};font:9px Georgia,serif">${t}</text>`; }
-  }
-  for (let c = -5; c <= 40; c += 5) {
-    const a = T2A(c * 9 / 5 + 32); s += ln(a, 160, 155, `stroke="${ink}" stroke-width=".8"`);
-    if (c % 10 === 0) { const [x, y] = pol(a, 146); s += `<text x="${x}" y="${y + 3}" text-anchor="middle" style="fill:${ink};font:8px Georgia,serif">${c}</text>`; }
-  }
-  s += `<text x="200" y="${200 + 128}" text-anchor="middle" style="fill:${ink};font:9px Georgia,serif;letter-spacing:1px">THERMOMETER °F / °C</text>`;
+  s += lbl(C, C, 0, 86, "MILLIBARS", `7px ${serif}`, ink);
+  s += `<text style="fill:${soft};font:6.4px ${serif};letter-spacing:.5px"><textPath href="#bfall" startOffset="50%" text-anchor="middle">FALLING DENOTES WEATHER DETERIORATION</textPath></text>
+        <text style="fill:${soft};font:6.4px ${serif};letter-spacing:.5px"><textPath href="#brise" startOffset="50%" text-anchor="middle">RISING DENOTES WEATHER IMPROVEMENT</textPath></text>
+        ${lbl(C, C, 0, 76, "⟵ ⟶", `9px ${serif}`, soft)}`;
+
+  // centre text, as on the skin: place, conditions, pressure, temperature
+  const trendTxt = { rising: "rising", falling: "falling", steady: "steady" }[n.trend] || "";
+  s += `<text x="${C}" y="${C - 46}" text-anchor="middle" style="fill:${ink};font:600 12px 'Segoe UI'">${esc(D.location?.near?.split(",")[0] || D.location?.name || "")}</text>
+    <text x="${C}" y="${C - 28}" text-anchor="middle" style="fill:${soft};font:11px 'Segoe UI'">${esc(n.text || "")}</text>
+    <text x="${C}" y="${C + 38}" text-anchor="middle" style="fill:${ink};font:12px 'Segoe UI';letter-spacing:.5px">BAROMETER</text>
+    <text x="${C}" y="${C + 52}" text-anchor="middle" style="fill:${ink};font:600 11px 'Segoe UI'">${n.pressure ? (+n.pressure).toFixed(2) + " in" : "–"}${trendTxt ? " ~ " + trendTxt : ""}</text>`;
+
+  // thermometer: a curved hatched band below the centre, °C inside, °F outside
+  s += `<path d="${arcPath(C, TY, 88, 257, 105)}" fill="none" stroke="${ink}" stroke-width="1"/>
+        <path d="${arcPath(C, TY, 98, 257, 105)}" fill="none" stroke="${ink}" stroke-width="1"/>`;
+  for (let t = 24; t <= 112; t += 2) { const a = BT2A(t), ten = t % 10 === 0;
+    s += tk(C, TY, a, 88, 98, ten ? 1.4 : .8, ink); if (ten) s += tk(C, TY, a, 98, 104, 1.4, ink);
+    if (ten && t >= 30) s += lbl(C, TY, a, 112, String(t), `9px ${serif}`, ink); }
+  for (let c = -5; c <= 45; c += 5) { const a = BT2A(c * 9 / 5 + 32);
+    s += tk(C, TY, a, 88, 82, c % 10 === 0 ? 1.4 : .8, ink); if (c % 10 === 0) s += lbl(C, TY, a, 74, String(c), `8px ${serif}`, ink); }
+  s += `<text x="${C}" y="${TY + 64}" text-anchor="middle" style="fill:${ink};font:6.5px ${serif};letter-spacing:.8px">CENTIGRADE</text>
+    <text x="${C}" y="${TY + 125}" text-anchor="middle" style="fill:${ink};font:6.5px ${serif};letter-spacing:.8px">FAHRENHEIT</text>
+    <text x="${C}" y="${C + 70}" text-anchor="middle" style="fill:${ink};font:12px 'Segoe UI';letter-spacing:.5px">THERMOMETER</text>
+    <text x="${C}" y="${C + 84}" text-anchor="middle" style="fill:${ink};font:600 11px 'Segoe UI'">${f0(n.temp)}°F</text>`;
   const td = g?.t_today;
-  if (td) {   // today's low / high marks on the thermometer arc
-    [[td.lo, "#2a74c9", "Today's low"], [td.hi, "#d9443a", "Today's high"]].forEach(([t, c, lab]) => {
-      const [x, y] = pol(T2A(t), 156), a = T2A(t);
-      s += `<g transform="rotate(${a} ${x} ${y})"><path d="M${x - 5} ${y + 7} L${x} ${y} L${x + 5} ${y + 7}Z" style="fill:${c}"><title>${lab}: ${f0(t)}°F</title></path></g>`;
-    });
-  }
-  // needles: gold = 24 h ago, black = now, red = temperature
-  if (g?.p_24h != null) s += needle(P2A(g.p_24h), 168, 0, 2.2, "#c9a227", `opacity=".95"><title>24 hours ago: ${g.p_24h.toFixed(2)} in</title><g`) + "</g>";
-  if (n.temp != null) s += needle(T2A(n.temp), 150, 0, 3, "#c0261a");
-  if (n.pressure) s += needle(P2A(+n.pressure), 160, 34, 4.5, "#1c1a18");
-  s += `<circle cx="200" cy="200" r="11" fill="url(#rim)" stroke="#5a4320"/><circle cx="200" cy="200" r="184" fill="url(#glass)"/>`;
+  if (td) [[td.lo, "#2a74c9", "Today's low"], [td.hi, "#d9443a", "Today's high"]].forEach(([t, c, l]) => {
+    const [x, y] = polc(C, TY, BT2A(t), 86);
+    s += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.2" fill="${c}"><title>${l}: ${f0(t)}°F</title></circle>`; });
+
+  // needles: gold reference (24 h ago), red thermometer, dark pressure needle on top
+  const line = (cx, cy, a, len, tail, w, col, title = "") => { const [x1, y1] = polc(cx, cy, a + 180, tail), [x2, y2] = polc(cx, cy, a, len);
+    return `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${col}" stroke-width="${w}" stroke-linecap="round">${title ? `<title>${title}</title>` : ""}</line>`; };
+  if (g?.p_24h != null) s += line(C, C, BP2A(g.p_24h), 146, 0, 2, "#e6c814", `24 hours ago: ${g.p_24h.toFixed(2)} in`) + `<circle cx="${C}" cy="${C}" r="5" fill="#e6c814"/>`;
+  if (n.temp != null) s += line(C, TY, BT2A(n.temp), 96, 11, 2, "#dc0000", `Temperature now: ${f0(n.temp)}°F`) +
+    `<circle cx="${C}" cy="${TY}" r="4" fill="#dc0000"/><circle cx="${C}" cy="${TY}" r="1.4" fill="#000"/>`;
+  if (n.pressure) s += line(C, C, BP2A(+n.pressure), 150, 38, 4, "#2f2f2f", `Pressure now: ${(+n.pressure).toFixed(2)} in`) +
+    `<circle cx="${C}" cy="${C}" r="8" fill="#2f2f2f"/><circle cx="${C}" cy="${C}" r="2" fill="#000"/>`;
+
+  // corner dials, like the skin's four small faces
+  const d0 = D.days[0] || {}, dd = D.detail_days?.[d0.date] || {};
+  const corner = (x, y, title, lines, tip) => `<g><title>${esc(tip)}</title><circle cx="${x}" cy="${y}" r="38" fill="url(#bdial)" stroke="#9c9c9c" stroke-width="1.2" filter="url(#bshadow)"/>
+      <text x="${x}" y="${y - (lines.length > 1 ? 12 : 6)}" text-anchor="middle" style="fill:${ink};font:600 10px 'Segoe UI'">${title}</text>
+      ${lines.map((l, i) => `<text x="${x}" y="${y + 4 + i * 13}" text-anchor="middle" style="fill:${ink};font:${i ? "10px" : "600 13px"} 'Segoe UI'">${l}</text>`).join("")}</g>`;
+  s += corner(40, 40, "Feels", [`${f0(n.feels)}°`], `Feels like ${f0(n.feels)}°F`) +
+       corner(360, 40, "Humidity", [`${f0(n.rh)}%`], `Humidity ${f0(n.rh)}%, dew point ${f0(n.dew)}°F`) +
+       corner(40, 360, "Wind", [`${f0(n.wind)} mph`, compass(n.dir)], `Wind ${f0(n.wind)} mph from the ${compass(n.dir)}, gusts ${f0(n.gust)}`) +
+       corner(360, 360, "Precip", [`${d0.pop ?? 0}%`, dd.precip != null ? `${dd.precip.toFixed(2)} in` : ""], `Chance of rain/snow today ${d0.pop ?? 0}%` + (dd.precip != null ? `, about ${dd.precip.toFixed(2)} in` : ""));
   return `<svg viewBox="0 0 400 400" style="width:100%;height:100%;display:block">${s}</svg>`;
+}
+
+// Mercury tubes: a thermometer, a mercury barometer and a rain gauge, side by side.
+function mercuryTubes(n, g) {
+  const W = 480, H = 330, top = 28, bot = 262;
+  const yOf = (v, lo, hi) => bot - (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * (bot - top);
+  let s = `<defs>
+    <linearGradient id="glassT" x1="0" x2="1"><stop offset="0" stop-color="#ffffff" stop-opacity=".25"/><stop offset=".35" stop-color="#ffffff" stop-opacity=".6"/><stop offset="1" stop-color="#ffffff" stop-opacity=".1"/></linearGradient>
+    <linearGradient id="redM" x1="0" x2="1"><stop offset="0" stop-color="#9e0f0f"/><stop offset=".4" stop-color="#ff4a3d"/><stop offset="1" stop-color="#a51010"/></linearGradient>
+    <linearGradient id="hgM" x1="0" x2="1"><stop offset="0" stop-color="#6d737b"/><stop offset=".4" stop-color="#e8ebef"/><stop offset="1" stop-color="#7a8088"/></linearGradient>
+    <linearGradient id="waterM" x1="0" x2="1"><stop offset="0" stop-color="#1d5fae"/><stop offset=".4" stop-color="#5aa8ff"/><stop offset="1" stop-color="#1d5fae"/></linearGradient></defs>`;
+  const tube = (x, w, fill, v, lo, hi) => {
+    const y = yOf(v, lo, hi);
+    return `<rect x="${x - w / 2 - 3}" y="${top - 8}" width="${w + 6}" height="${bot - top + 14}" rx="${w / 2 + 3}" style="fill:var(--track);stroke:var(--edge)"/>
+      ${v != null ? `<rect x="${x - w / 2}" y="${y}" width="${w}" height="${bot - y + 4}" fill="url(#${fill})"/>` : ""}
+      <rect x="${x - w / 2 - 3}" y="${top - 8}" width="${(w + 6) / 2}" height="${bot - top + 14}" rx="${w / 2}" fill="url(#glassT)" opacity=".35"/>`;
+  };
+  const scale = (x, lo, hi, step, major, side, fmt, conv) => {
+    let o = "";
+    for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) {
+      const y = yOf(v, lo, hi), big = Math.abs(v / major - Math.round(v / major)) < 1e-6, dx = side < 0 ? -1 : 1;
+      o += `<line x1="${x}" y1="${y}" x2="${x + dx * (big ? 9 : 5)}" y2="${y}" style="stroke:var(--dim)" stroke-width="${big ? 1.2 : .7}"/>`;
+      if (big) o += `<text x="${x + dx * 12}" y="${y + 3.5}" text-anchor="${side < 0 ? "end" : "start"}" style="fill:var(--dim);font-size:10px">${fmt(conv ? conv(v) : v)}</text>`;
+    }
+    return o;
+  };
+  const marker = (x, v, lo, hi, col, title, side = 1) => v == null ? "" : (() => { const y = yOf(v, lo, hi);
+    return `<path d="M${x + side * 2} ${y} l${side * 9} -5 v10z" style="fill:${col}"><title>${esc(title)}</title></path>`; })();
+
+  // thermometer (°F left, °C right) with a bulb
+  const tlo = Math.min(0, Math.floor(((g?.t_today?.lo ?? n.temp ?? 30) - 10) / 10) * 10), thi = Math.max(tlo + 70, Math.ceil(((g?.t_today?.hi ?? n.temp ?? 60) + 10) / 10) * 10);
+  s += tube(80, 12, "redM", n.temp, tlo, thi) + `<circle cx="80" cy="${bot + 18}" r="17" fill="url(#redM)" style="stroke:var(--edge)"/>`;
+  s += scale(70, tlo, thi, 2, 10, -1, v => v + "°") ;
+  const cLo = Math.ceil((tlo - 32) * 5 / 9 / 5) * 5, cHi = Math.floor((thi - 32) * 5 / 9 / 5) * 5;
+  for (let c = cLo; c <= cHi; c += 5) { const y = yOf(c * 9 / 5 + 32, tlo, thi);
+    s += `<line x1="90" y1="${y}" x2="${c % 10 ? 95 : 99}" y2="${y}" style="stroke:var(--dim)" stroke-width="${c % 10 ? .7 : 1.2}"/>` +
+         (c % 10 === 0 ? `<text x="102" y="${y + 3.5}" style="fill:var(--faint);font-size:9px">${c}°</text>` : ""); }
+  if (g?.t_today) s += marker(90, g.t_today.lo, tlo, thi, "#2a74c9", `Today's low ${f0(g.t_today.lo)}°F`) + marker(90, g.t_today.hi, tlo, thi, "#d9443a", `Today's high ${f0(g.t_today.hi)}°F`);
+
+  // mercury barometer (inHg left, mb right) with a cistern
+  const plo = 28.8, phi = 30.8, p = n.pressure ? +n.pressure : null;
+  s += tube(240, 12, "hgM", p, plo, phi) + `<rect x="218" y="${bot + 4}" width="44" height="26" rx="5" fill="url(#hgM)" style="stroke:var(--edge)"/>`;
+  s += scale(230, plo, phi, .05, .2, -1, v => v.toFixed(1));
+  for (let mb = 980; mb <= 1040; mb += 5) { const y = yOf(mb * .02953, plo, phi);
+    s += `<line x1="250" y1="${y}" x2="${mb % 20 ? 254 : 258}" y2="${y}" style="stroke:var(--dim)" stroke-width="${mb % 20 ? .7 : 1.2}"/>` +
+         (mb % 20 === 0 ? `<text x="261" y="${y + 3.5}" style="fill:var(--faint);font-size:9px">${mb}</text>` : ""); }
+  s += marker(250, g?.p_24h, plo, phi, "#c9a227", `24 hours ago: ${g?.p_24h?.toFixed(2)} in`) + marker(250, g?.p_3h, plo, phi, "#8a919c", `3 hours ago: ${g?.p_3h?.toFixed(2)} in`);
+
+  // rain gauge: today's rain, scale grows with the amount
+  const rain = n.rain_today ?? 0, rhi = Math.max(0.5, Math.ceil(rain * 4 + 0.5) / 4), ry = yOf(rain, 0, rhi);
+  s += `<rect x="372" y="${top - 8}" width="56" height="${bot - top + 14}" rx="6" style="fill:var(--track);stroke:var(--edge)"/>
+    <rect x="375" y="${ry}" width="50" height="${bot - ry + 3}" rx="3" fill="url(#waterM)" opacity=".9"/>
+    <rect x="375" y="${top - 6}" width="14" height="${bot - top + 10}" rx="3" fill="url(#glassT)" opacity=".35"/>`;
+  s += scale(366, 0, rhi, rhi > 1 ? .1 : .05, rhi > 1 ? .5 : .25, -1, v => v.toFixed(2));
+  if (n.rain_yesterday != null) { const y = yOf(n.rain_yesterday, 0, rhi);
+    s += `<line x1="372" x2="428" y1="${y}" y2="${y}" style="stroke:var(--warm)" stroke-dasharray="4 3"><title>Yesterday: ${(+n.rain_yesterday).toFixed(2)} in</title></line>`; }
+
+  const cap = (x, title, val, sub) => `<text x="${x}" y="${H - 22}" text-anchor="middle" style="fill:var(--text);font:600 13px 'Segoe UI'">${val}</text>
+    <text x="${x}" y="${H - 8}" text-anchor="middle" style="fill:var(--dim);font-size:11px">${title}${sub ? " · " + sub : ""}</text>`;
+  const trendTxt = { rising: "↗ rising", falling: "↘ falling", steady: "→ steady" }[n.trend] || "";
+  s += cap(85, "Thermometer", `${f0(n.temp)}°F`, g?.t_today ? `today ${f0(g.t_today.lo)}–${f0(g.t_today.hi)}°` : "") +
+       cap(240, "Barometer", p ? `${p.toFixed(2)} in` : "–", trendTxt) +
+       cap(400, "Rain gauge", `${rain.toFixed(2)} in`, n.rain_yesterday != null ? `yesterday ${(+n.rain_yesterday).toFixed(2)}` : "today");
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">${s}</svg>`;
+}
+
+// Trend graphs: the last 24 hours of pressure, temperature and wind.
+function trendGraphs(n, g) {
+  const W = Math.max(320, innerW()), now = Date.now() / 1000, t0 = now - 24 * 3600;
+  const chart = (title, rows, series, opts) => {
+    const h = 110, L = 40, Rr = 10, T = 22, B = 18, ih = h - T - B, iw = W - L - Rr;
+    const pts = rows.filter(r => r[0] >= t0);
+    if (pts.length < 2) return `<div class="gcap">${title}: not enough history yet</div>`;
+    const vals = pts.flatMap(r => series.map(sr => r[sr.i])).filter(v => v != null);
+    let lo = Math.min(...vals), hi = Math.max(...vals);
+    if (opts.zero) lo = 0;
+    const pad = Math.max((hi - lo) * .12, opts.minSpan / 2); lo -= opts.zero ? 0 : pad; hi += pad;
+    const X = t => L + (t - t0) / (now - t0) * iw, Y = v => T + ih - (v - lo) / (hi - lo) * ih;
+    let s = `<text x="${L}" y="14" style="fill:var(--text);font:600 12px 'Segoe UI'">${title}</text>
+      <text x="${W - Rr}" y="14" text-anchor="end" style="fill:var(--dim);font-size:11px">${opts.summary}</text>`;
+    for (let k = 0; k <= 4; k++) { const v = lo + (hi - lo) * k / 4, y = Y(v);
+      s += `<line x1="${L}" x2="${W - Rr}" y1="${y}" y2="${y}" style="stroke:var(--cgrid)"/><text x="${L - 4}" y="${y + 3}" text-anchor="end" style="fill:var(--faint);font-size:9px">${opts.fmt(v)}</text>`; }
+    for (let hAgo = 24; hAgo >= 0; hAgo -= 6) { const x = X(now - hAgo * 3600);
+      s += `<line x1="${x}" x2="${x}" y1="${T}" y2="${T + ih}" style="stroke:var(--cgrid)"/><text x="${x}" y="${h - 4}" text-anchor="middle" style="fill:var(--faint);font-size:9px">${hAgo ? new Date((now - hAgo * 3600) * 1000).toLocaleTimeString("en-US", { hour: "numeric" }) : "now"}</text>`; }
+    for (const sr of series) {
+      const p = pts.filter(r => r[sr.i] != null);
+      if (sr.bars) s += p.map(r => `<rect x="${X(r[0]) - 1.5}" y="${Y(r[sr.i])}" width="3" height="${T + ih - Y(r[sr.i])}" style="fill:${sr.c}" opacity=".55"/>`).join("");
+      else s += `<path d="M${p.map(r => `${X(r[0]).toFixed(1)} ${Y(r[sr.i]).toFixed(1)}`).join("L")}" fill="none" style="stroke:${sr.c}" stroke-width="2"/>`;
+    }
+    for (const m of opts.marks || []) if (m.v != null) s += `<circle cx="${X(m.t)}" cy="${Y(m.v)}" r="3.5" style="fill:${m.c}"><title>${esc(m.title)}</title></circle>`;
+    // hover strips with the reading at that time
+    const step = iw / pts.length;
+    s += pts.map(r => `<rect x="${X(r[0]) - step / 2}" y="${T}" width="${step}" height="${ih}" fill="transparent"><title>${new Date(r[0] * 1000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}: ${opts.tip(r)}</title></rect>`).join("");
+    return `<svg width="${W}" height="${h}" style="display:block;margin-bottom:4px">${s}</svg>`;
+  };
+  const p = g?.p_hist || [], t = g?.t_hist || [], w = g?.w_hist || [];
+  const pc = p.length > 1 ? p[p.length - 1][1] - p[0][1] : null;
+  const tmin = t.length ? t.reduce((a, r) => r[1] < a[1] ? r : a) : null, tmax = t.length ? t.reduce((a, r) => r[1] > a[1] ? r : a) : null;
+  const gmax = w.length ? w.reduce((a, r) => r[2] > a[2] ? r : a) : null;
+  return chart("Pressure (sea level, in)", p, [{ i: 1, c: "var(--accent)" }],
+      { fmt: v => v.toFixed(2), minSpan: .1, tip: r => `${r[1].toFixed(2)} in`,
+        summary: pc != null ? `${pc >= 0 ? "+" : ""}${pc.toFixed(2)} in over 24 h · ${{ rising: "↗ rising", falling: "↘ falling", steady: "→ steady" }[n.trend] || ""}` : "" }) +
+    chart("Temperature (°F)", t, [{ i: 1, c: "var(--ctemp)" }],
+      { fmt: v => Math.round(v) + "°", minSpan: 4, tip: r => `${r[1].toFixed(1)}°F`,
+        summary: tmin ? `24 h low ${f0(tmin[1])}° · high ${f0(tmax[1])}°` : "",
+        marks: tmin ? [{ t: tmin[0], v: tmin[1], c: "#2a74c9", title: `Low ${tmin[1]}°F` }, { t: tmax[0], v: tmax[1], c: "#d9443a", title: `High ${tmax[1]}°F` }] : [] }) +
+    chart("Wind (mph)", w, [{ i: 2, c: "var(--crainbar)", bars: true }, { i: 1, c: "var(--cwind)" }],
+      { fmt: v => Math.round(v), minSpan: 6, zero: true, tip: r => `wind ${f0(r[1])}, gust ${f0(r[2])} mph`,
+        summary: gmax ? `strongest gust ${f0(gmax[2])} mph at ${new Date(gmax[0] * 1000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}` : "" });
 }
 
 function arcDial({ title, value, min, max, fmt, unit, color, marks = [], sub = "", tip = "" }) {
@@ -709,12 +858,13 @@ function windDial(n) {
 const HELP = () => ({
   classic: `<h3>Reading the barometer</h3>
     <h5>The needles</h5><ul>
-      <li><b>Black needle</b>: the air pressure now (adjusted to sea level, the way barometers and forecasts compare it, since your station sits at about ${(D?.location?.elevation_ft ?? 0).toLocaleString()} ft).</li>
-      <li><b>Gold needle</b>: where the pressure was <b>24 hours ago</b>, like the brass "set" needle you turn by hand on a real barometer.</li>
-      <li><b>Red needle</b> (bottom scale): the temperature now. The <span style="color:#2a74c9">blue</span> and <span style="color:#d9443a">red</span> marks are today's low and high so far.</li></ul>
+      <li><b>Dark needle</b> (long, with a short tail): the air pressure now, adjusted to sea level (the way barometers and forecasts compare it; your station sits at about ${(D?.location?.elevation_ft ?? 0).toLocaleString()} ft).</li>
+      <li><b>Gold needle</b> (thin): where the pressure was <b>24 hours ago</b>, like the brass "set" needle you turn by hand on a real barometer.</li>
+      <li><b>Red needle</b> (pivots below the centre): the temperature now on the curved thermometer. The <span style="color:#2a74c9">blue</span> and <span style="color:#d9443a">red</span> dots are today's low and high so far.</li></ul>
     <h5>The scales</h5><ul>
-      <li>Outer numbers: <b>inches of mercury</b> (inHg). Inner numbers: <b>millibars</b> (mb, the same as hPa).</li>
-      <li>Bottom arc: °F on the outside, °C on the inside.</li></ul>
+      <li>Big numbers 29, 30, 31 and the "5"s between them: <b>inches of mercury</b> (inHg). The "5" means half an inch, e.g. 29.5. The smaller ring: <b>millibars</b> (mb, the same as hPa).</li>
+      <li>Thermometer: °C on the inner side of the band, °F on the outer side.</li>
+      <li>Corner dials: <b>Feels</b> like, <b>Humidity</b>, <b>Wind</b> speed and direction, and today's <b>Precip</b> chance and expected amount.</li></ul>
     <h5>What it tells you</h5><ul>
       <li>The <b>change</b> matters more than the words. Black <b>clockwise (right)</b> of gold means pressure is <b>rising</b>, usually improving or clearing. <b>Counter-clockwise (left)</b> means <b>falling</b>, usually clouds, wind or rain coming.</li>
       <li>The words (Stormy, Rain, Change, Fair, Very Dry) are the traditional rough guide for the reading itself.</li></ul>
@@ -730,13 +880,28 @@ const HELP = () => ({
       <li><b>Humidity</b>: relative humidity in %. The dew point is the temperature at which dew, fog or frost forms. When the temperature gets close to it, expect fog, dew or frost.</li>
       <li><b>Wind</b>: the arrow on the ring shows where the wind is <b>coming from</b>, like a weather vane, e.g. an arrow at N is a north wind. The middle is the speed now; underneath are the gusts and today's strongest gust.</li></ul>
     <p style="color:var(--dim)">Hover any dial or tick for its exact value. Rising pressure usually means improving weather; falling pressure means change on the way.</p>`,
+  tubes: `<h3>Reading the tubes</h3><ul>
+      <li><b>Thermometer</b>: the red column is the temperature, °F on the left and °C on the right. The <span style="color:#2a74c9">blue</span> and <span style="color:#d9443a">red</span> arrows are today's low and high so far.</li>
+      <li><b>Mercury barometer</b>: the silver column is the air pressure (sea level), inches on the left and millibars on the right. The <span style="color:#c9a227">gold</span> arrow is where it stood 24 hours ago and the grey arrow 3 hours ago. Column <b>above</b> the arrows means pressure is <b>rising</b> (usually improving); <b>below</b> means <b>falling</b> (change, clouds or rain coming).</li>
+      <li><b>Rain gauge</b>: the water is today's rain since midnight. The scale grows with the amount. The dashed orange line is yesterday's total (needs the Tempest token).</li></ul>
+    <p style="color:var(--dim)">Hover an arrow or line for its exact value.</p>`,
+  graphs: `<h3>Reading the trend graphs</h3><ul>
+      <li>Each graph shows the <b>last 24 hours</b> from your station, oldest on the left and <b>now</b> on the right.</li>
+      <li><b>Pressure</b> (sea level): the line's slope is what matters. Going up means improving; going down means change on the way. A drop of more than about 0.06 in within 3 hours often comes before a storm or strong wind. The summary on the right gives the 24-hour change.</li>
+      <li><b>Temperature</b>: the <span style="color:#2a74c9">blue</span> dot marks the lowest point and the <span style="color:#d9443a">red</span> dot the highest in the last 24 hours.</li>
+      <li><b>Wind</b>: the line is the average wind and the bars are the gusts, the strongest in each 15 minutes.</li></ul>
+    <p style="color:var(--dim)">Hover anywhere on a graph for the reading at that time.</p>`,
 });
 
 function renderGauges() {
   const n = D.now || {}, g = D.gauges || {}, box = $("t-gauges");
   const trendTxt = { rising: "↗ rising", falling: "↘ falling", steady: "→ steady" }[n.trend] || "";
   let body;
-  if (gStyle === "classic") {
+  if (gStyle === "tubes") {
+    body = `<div style="max-width:${Math.max(300, Math.min(innerW(), (tabH - 50) * 480 / 330))}px;margin:0 auto">${mercuryTubes(n, g)}</div>`;
+  } else if (gStyle === "graphs") {
+    body = trendGraphs(n, g);
+  } else if (gStyle === "classic") {
     const size = Math.max(240, Math.min(innerW(), tabH - 70));
     const d24 = g.p_24h != null && n.pressure ? +n.pressure - g.p_24h : null;
     body = `<div style="width:${size}px;height:${size}px;margin:0 auto">${classicBarometer(n, g)}</div>
@@ -757,7 +922,8 @@ function renderGauges() {
         sub: `dew point ${f0(n.dew)}°`, tip: `Humidity ${f0(n.rh)}%, dew point ${f0(n.dew)}°F` })}
       ${windDial(n)}</div>`;
   }
-  box.innerHTML = `<div class="gbar"><span class="seg" id="gseg"><span data-g="classic" class="${gStyle === "classic" ? "on" : ""}">Classic barometer</span><span data-g="dials" class="${gStyle === "dials" ? "on" : ""}">Modern dials</span></span>
+  const opt = (k, label) => `<span data-g="${k}" class="${gStyle === k ? "on" : ""}">${label}</span>`;
+  box.innerHTML = `<div class="gbar"><span class="seg" id="gseg">${opt("classic", "Barometer")}${opt("dials", "Dials")}${opt("tubes", "Tubes")}${opt("graphs", "24 h graphs")}</span>
       <span class="help" id="ghelp">ⓘ How to read</span></div>${body}
     ${helpOpen ? `<div class="helpbox"><span class="x" id="gx" title="Close">✕</span>${HELP()[gStyle]}</div>` : ""}`;
 }
@@ -885,7 +1051,7 @@ function setPanelWidth(w, save) {
   panelW = Math.round(Math.max(460, Math.min(screen.availWidth / z - 20, w)));
   document.documentElement.style.setProperty("--pw", panelW + "px");
   clearTimeout(wTimer);   // redraw the chart (and radar) once the size settles
-  wTimer = setTimeout(() => { if (D) { renderHourly(); if ($("t-radar").classList.contains("on")) radar(); } }, save ? 0 : 60);
+  wTimer = setTimeout(() => { if (D) { renderHourly(); renderGauges(); if ($("t-radar").classList.contains("on")) radar(); } }, save ? 0 : 60);
   if (save) app()?.remember("pw", panelW);
 }
 const wgrip = $("wgrip");
@@ -908,6 +1074,7 @@ function setTabHeight(h, save, noCap) {
   const maxH = noCap ? 5000 : Math.max(200, screen.availHeight / z - rest - 20);   // never taller than the screen
   tabH = Math.round(Math.max(200, Math.min(maxH, h)));
   document.documentElement.style.setProperty("--tabh", tabH + "px");
+  if (D) renderGauges();   // the gauges size themselves to the tab
   if (save) app()?.remember("tabh", tabH);
 }
 const grip = $("grip");
