@@ -425,7 +425,7 @@ function renderHourly(force) {
   }
   s += `<line id="cur" y1="${top - 8}" y2="${bot - 18}" style="stroke:var(--ccur)" visibility="hidden"/>`;
   $("t-hourly").innerHTML = `<div><span class="seg" id="span"><span data-h="48" class="${hourSpan === 48 ? "on" : ""}">48 hours</span><span data-h="168" class="${hourSpan === 168 ? "on" : ""}">7 days</span></span>
-    <span class="legend"><i style="background:#ffb347"></i>forecast<i style="background:#7cc4ff44;height:8px"></i>all sources' range<i style="background:#4d9fffaa;height:8px"></i>chance of rain/snow</span></div>
+    <span class="legend"><i style="background:var(--ctemp)"></i>forecast<i style="height:0;border-top:2px dotted var(--cfeels)" title="Wind chill when cold and windy, heat index when hot and humid; otherwise the same as the temperature"></i><span title="Wind chill when cold and windy, heat index when hot and humid; otherwise the same as the temperature">feels like</span><i style="background:var(--cband);height:8px"></i><span title="The shaded band: the lowest to highest temperature any source forecasts for that hour">range</span><i style="background:var(--crainbar);height:8px"></i><span title="Bars: chance of rain or snow (white bars = snow)">rain/snow %</span></span></div>
     <svg id="hsvg" width="${W}" height="${bot}">${s}</svg>`;
   const svg = $("hsvg"), tip = $("tip");
   svg.onmousemove = e => {
