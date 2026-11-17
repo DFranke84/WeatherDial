@@ -45,7 +45,12 @@
   nav div { flex: 1; text-align: center; padding: 6px 0; color: var(--dim); cursor: pointer; border-bottom: 2px solid transparent; }
   nav div:hover { color: var(--text); }
   nav div.on { color: var(--text); border-bottom-color: var(--accent); }
-  .tab { display: none; padding: 8px 12px 10px; height: 360px; overflow-y: auto; }
+  .tab { display: none; padding: 8px 12px 10px; height: var(--tabh, 360px); overflow-y: auto; }
+  #grip { height: 9px; cursor: ns-resize; display: flex; align-items: center; justify-content: center;
+          border-top: 1px solid var(--line); touch-action: none; }
+  #grip::after { content: ""; width: 40px; height: 3px; border-radius: 2px; background: #5d636d; }
+  #grip:hover::after { background: var(--accent); }
+  body.compact #grip { display: none; }
   .pywebview-drag-region { cursor: move; }
   #menu { position: fixed; background: #222; border: 1px solid #555; border-radius: 6px; z-index: 20;
           font-size: 13px; color: #ddd; padding: 4px 0; white-space: nowrap; }
@@ -129,6 +134,7 @@
   <div class="tab" id="t-radar"><div id="radar"></div><div style="margin-top:6px;color:var(--dim)" id="radarInfo"></div></div>
   <div class="tab" id="t-afd"></div>
   <div class="tab" id="t-sources"></div>
+  <div id="grip" title="Drag to make the panel taller or shorter. Double-click: fit this tab."></div>
 </div>
 <div id="tip"></div>
 <div id="menu" hidden>
@@ -263,7 +269,7 @@ function renderHourly() {
   // icons, temps and hour labels
   H.forEach((h, i) => { if (i % step) return;
     s += `<g transform="translate(${x(i) - 9} ${y(h.temp) - 26})">${icon(h.icon, 18, !h.day)}</g>`;
-    s += `<text x="${x(i)}" y="${bot - 20}" text-anchor="middle">${hourSpan === 48 ? hourLabel(h.t) : dayName(h.t.slice(0, 10))}</text>`;
+    s += `<text x="${x(i)}" y="${bot - 20}" text-anchor="middle">${hourLabel(h.t)}</text>`;
     s += `<text x="${x(i)}" y="${bot - 6}" text-anchor="middle" style="fill:#8a9">${f0(h.wind)}</text>`; });
   s += `<text x="0" y="${bot - 6}" style="fill:#8a9">mph</text>`;
   s += `<line id="cur" y1="${top - 8}" y2="${bot - 18}" stroke="#fff6" visibility="hidden"/>`;
@@ -275,7 +281,7 @@ function renderHourly() {
     const r = svg.getBoundingClientRect(), i = Math.max(0, Math.min(H.length - 1, Math.round((e.clientX - r.left - 30) / ((W - 44) / (H.length - 1))))), h = H[i];
     const c = $("cur"); c.setAttribute("x1", x(i)); c.setAttribute("x2", x(i)); c.setAttribute("visibility", "visible");
     const by = Object.entries(h.by || {}).map(([k, v]) => `<div style="color:#aaa">${k}: ${f0(v)}°</div>`).join("");
-    tip.innerHTML = `<b>${dayName(h.t.slice(0, 10))} ${hourLabel(h.t)}</b> ${esc(h.text || "")}<br>${f0(h.temp)}°F (feels ${f0(h.feels)}°) · ${h.pop ?? 0}% · wind ${f0(h.wind)}${h.gust ? "–" + f0(h.gust) : ""} mph${h.aqi != null ? " · AQI " + h.aqi : ""}${by}`;
+    tip.innerHTML = `<b>${dayName(h.t.slice(0, 10))} ${hourLabel(h.t)}</b> ${esc(h.text || "")}<br>${f0(h.temp)}°F (feels ${f0(h.feels)}°) · ${h.pop ?? 0}% · wind ${f0(h.wind)}${h.gust > h.wind ? ", gusts " + f0(h.gust) : ""} mph${h.aqi != null ? " · AQI " + h.aqi : ""}${by}`;
     tip.style.display = "block";
     const z = +document.body.style.zoom || 1, vw = innerWidth / z, vh = innerHeight / z;
     tip.style.left = Math.max(2, Math.min(e.clientX + 14, vw - tip.offsetWidth - 4)) + "px";
@@ -322,14 +328,17 @@ function periodDate(p) {
 
 function renderCompare() {
   const days = D.days.slice(0, 8), srcs = [...new Set(days.flatMap(d => Object.keys(d.by)))];
-  const cell = (d, s) => { const v = d.by[s]; if (!v || v.hi == null) return `<td style="color:var(--faint)">–</td>`;
-    const dh = v.hi - d.hi, cls = dh >= 4 ? "dev-hi" : dh <= -4 ? "dev-lo" : "";
-    return `<td class="${cls}">${f0(v.hi)}<span style="color:var(--faint)">/</span>${f0(v.lo)}</td>`; };
+  const dev = (v, avg) => v == null || avg == null ? "" : v - avg >= 4 ? "dev-hi" : v - avg <= -4 ? "dev-lo" : "";
+  const vs = (v, avg) => { if (v == null) return "no forecast"; const d = Math.round(v - avg);
+    return `${f0(v)}° (${d === 0 ? "same as" : Math.abs(d) + "° " + (d > 0 ? "warmer than" : "colder than")} the ${f0(avg)}° average)`; };
+  const cell = (d, s, i) => { const v = d.by[s]; if (!v || (v.hi == null && v.lo == null)) return `<td style="color:var(--faint)" title="${s} has no forecast for this day">–</td>`;
+    const tip = `${s}, ${i ? dayName(d.date, true) : "today"}\nHigh ${vs(v.hi, d.hi)}\nLow ${vs(v.lo, d.lo)}${v.pop != null ? "\nChance of rain/snow " + v.pop + "%" : ""}${v.text ? "\n" + v.text : ""}`;
+    return `<td title="${esc(tip)}"><span class="${dev(v.hi, d.hi)}">${f0(v.hi)}</span><span style="color:var(--faint)">/</span><span class="${dev(v.lo, d.lo)}">${f0(v.lo)}</span></td>`; };
   let h = `<h4>Highs / lows by source</h4><table class="cmp"><tr><th></th>${days.map((d, i) => `<th>${i ? dayName(d.date) : "Today"}</th>`).join("")}</tr>`;
-  h += srcs.map(s => `<tr><td>${s}</td>${days.map(d => cell(d, s)).join("")}</tr>`).join("");
-  h += `<tr class="cons"><td>Average</td>${days.map(d => `<td>${f0(d.hi)}/${f0(d.lo)}</td>`).join("")}</tr>`;
-  h += `<tr><td style="color:var(--dim)">Spread (highs)</td>${days.map(d => `<td style="color:var(--dim)">${d.hi_max - d.hi_min}°</td>`).join("")}</tr></table>`;
-  h += `<p style="color:var(--faint);font-size:11px">Red = 4°+ warmer than the average, blue = 4°+ colder.</p>`;
+  h += srcs.map(s => `<tr><td>${s}</td>${days.map((d, i) => cell(d, s, i)).join("")}</tr>`).join("");
+  h += `<tr class="cons"><td>Average</td>${days.map(d => `<td title="Average of ${d.hi_n} sources: high ${f0(d.hi)}°, low ${f0(d.lo)}°">${f0(d.hi)}/${f0(d.lo)}</td>`).join("")}</tr>`;
+  h += `<tr><td style="color:var(--dim)">Spread (highs)</td>${days.map(d => `<td style="color:var(--dim)" title="Warmest high ${d.hi_max}° minus coldest high ${d.hi_min}°. Bigger = the sources disagree more.">${d.hi_max - d.hi_min}°</td>`).join("")}</tr></table>`;
+  h += `<p style="color:var(--dim);font-size:11px;margin-top:6px">Each cell is <b>high/low</b>. <span class="dev-hi">Red</span> = 4° or more <b>warmer</b> than the average of all sources that day; <span class="dev-lo">blue</span> = 4° or more <b>colder</b>. White = within 4°. Hover over a cell for details.</p>`;
   h += `<h4>Right now</h4><table class="cmp"><tr><th>Reading</th><th>Temp</th><th>Wind</th><th>Humidity</th><th>Pressure</th></tr>` +
     D.readings.map(r => `<tr><td>${esc(r.station)}</td><td>${f0(r.temp)}°</td><td>${f0(r.wind)} ${compass(r.dir)}</td><td>${f0(r.rh)}%</td><td>${r.pressure ? (+r.pressure).toFixed(2) : "–"}</td></tr>`).join("") + `</table>`;
   $("t-compare").innerHTML = h;
@@ -345,7 +354,7 @@ function renderSources() {
   const S = D.sources;
   $("t-sources").innerHTML = Object.entries(S).map(([k, s]) => {
     const col = s.state === "ok" ? "var(--good)" : s.state === "no key" ? "var(--faint)" : s.state === "stale" ? "var(--fair)" : "var(--bad)";
-    const note = s.state === "ok" ? (s.via ? "via " + s.via : "") + (s.fetched ? " · " + ago(new Date(s.fetched * 1000).toISOString()) : "")
+    const note = s.state === "ok" ? [s.via ? "via " + s.via : "", s.fetched ? ago(new Date(s.fetched * 1000).toISOString()) : ""].filter(Boolean).join(" · ")
       : s.state === "no key" ? `free key needed · <a href="${s.signup}" target="_blank">sign up</a>` : esc(s.error || s.state);
     return `<div class="src"><div class="dot" style="background:${col}"></div><div>${k}${s.keyed ? ' <small style="color:var(--faint)">(key)</small>' : ""}</div><div class="note">${note}</div></div>`;
   }).join("") + `<p style="color:var(--faint);font-size:11px">To add or change a key: right-click the panel → <b>Edit API keys…</b>, paste it, save. It's used from the next refresh. Radar: RainViewer. Map: Esri.</p>`;
@@ -410,6 +419,34 @@ function setLocked(on) {
   $("mLock").textContent = on ? "Unlock position" : "Lock position";
 }
 function setZoom(z) { document.body.style.zoom = z; }
+
+// Bottom-edge handle: drag to change the height of the tab area (remembered).
+// Double-click: make it exactly tall enough for the tab that's showing.
+let tabH = 360;
+function setTabHeight(h, save, noCap) {
+  const z = +document.body.style.zoom || 1;
+  const rest = $("panel").getBoundingClientRect().height / z - document.querySelector(".tab.on").getBoundingClientRect().height / z;
+  const maxH = noCap ? 5000 : Math.max(200, screen.availHeight / z - rest - 20);   // never taller than the screen
+  tabH = Math.round(Math.max(200, Math.min(maxH, h)));
+  document.documentElement.style.setProperty("--tabh", tabH + "px");
+  if (save) app()?.remember("tabh", tabH);
+}
+const grip = $("grip");
+grip.addEventListener("pointerdown", e => {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  try { grip.setPointerCapture(e.pointerId); } catch {}
+  const y0 = e.screenY, h0 = tabH, z = +document.body.style.zoom || 1;
+  grip.onpointermove = m => setTabHeight(h0 + (m.screenY - y0) / z, false);
+  grip.onpointerup = () => { grip.onpointermove = grip.onpointerup = null; setTabHeight(tabH, true); };
+});
+grip.addEventListener("dblclick", () => {
+  const t = document.querySelector(".tab.on"), cs = getComputedStyle(t);
+  t.style.height = "auto";
+  const h = t.offsetHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  t.style.height = "";
+  setTabHeight(h, true);
+});
 document.addEventListener("mousedown", e => {
   if (e.button === 0 && e.target.closest(".pywebview-drag-region") && !e.target.closest(".btn")) { dragging = true; app()?.dragging(true); }
 });
@@ -440,6 +477,7 @@ new ResizeObserver(() => {
 window.addEventListener("pywebviewready", async () => {
   const s = await app().settings();
   setZoom(s.zoom); setCompact(s.compact); setLocked(s.locked); showTab(s.tab);
+  if (s.tabh) setTabHeight(s.tabh, false);
   const r = $("panel").getBoundingClientRect();
   app().fit(Math.ceil(r.right) + 1, Math.ceil(r.bottom) + 1);
 });
@@ -456,6 +494,15 @@ async function load(force) {
 load().then(() => {   // ?tab=daily / ?compact: open that way (used for screenshots)
   if (Q.get("tab")) showTab(Q.get("tab"));
   if (Q.has("compact")) setCompact(true);
+  if (Q.get("tabh")) setTabHeight(+Q.get("tabh"), false, true);
+  if (Q.get("span")) { hourSpan = +Q.get("span"); renderHourly(); }
+  if (Q.get("open")) $("dd" + Q.get("open"))?.classList.add("open");
+  if (Q.get("hover")) {   // show the hourly tooltip at hour N
+    const svg = $("hsvg"), r = svg.getBoundingClientRect(), n = Math.min(hourSpan, D.hourly.length);
+    const px = r.left + 30 + (+Q.get("hover")) * (476 - 44) / (n - 1);
+    svg.dispatchEvent(new MouseEvent("mousemove", { clientX: px, clientY: r.top + 90, bubbles: true }));
+  }
+  if (Q.has("menu")) { menu.hidden = false; menu.style.left = "300px"; menu.style.top = "70px"; }
 });
 setInterval(load, 60 * 1000);
 </script>

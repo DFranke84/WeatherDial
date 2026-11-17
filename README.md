@@ -14,6 +14,18 @@ readings on top.
 |---|---|---|
 | ![Forecaster](docs/screenshots/forecaster.png) | ![Sources](docs/screenshots/sources.png) | ![Compact](docs/screenshots/compact.png) |
 
+**Hidden extras**
+
+| Click a day (16-Day) | Hover the hourly chart | Hourly: 7 days | Right-click menu |
+|---|---|---|---|
+| ![Day details](docs/screenshots/daily-open.png) | ![Hourly tooltip](docs/screenshots/hourly-hover.png) | ![7 days](docs/screenshots/hourly-7day.png) | ![Menu](docs/screenshots/menu.png) |
+
+- **Click a day** in 16-Day for the NWS day and night forecast text, sun times, UV, snow, rain,
+  gusts and every source's numbers for that day.
+- **Hover** the hourly chart for that hour's details and each source's temperature.
+- **Hover a cell** in Compare to see how far that source is from the average.
+- **Click a warning banner** to read the full NWS alert and what to do.
+
 - **Now:** your station (Tempest), else the nearest official station, else the model.
   Wind and gusts, humidity and dew point, pressure and its 3-hour trend, rain today, UV and
   solar, sunrise and sunset, moon, air quality, lightning.
@@ -45,6 +57,8 @@ hides while its monitor is off and comes back when the monitor is on again.
 ## Using it
 
 - **Move:** drag the top bar or the current-conditions area.
+- **Taller or shorter:** drag the small handle on the bottom edge. Double-click it to fit the
+  tab you're looking at exactly. The height is remembered and never goes past the screen.
 - **Right-click** the panel for its menu: Lock position, Compact / Full size, Small /
   Medium / Large, Refresh now, Edit API keys, Edit location, Close.
 - The **tray icon** (sun and cloud) has the same menu, plus **Start with Windows**.
@@ -74,6 +88,8 @@ prompt. Lightning isn't in that file; the Tempest cloud token adds it.
 **How the average works:** each day's high and low is the average of every source that
 forecasts that day. Lows are the calendar-day low (that morning), for every source. The dot
 shows agreement: green when the sources are within 5°, yellow within 10°, red beyond that.
+In **Compare**, each cell is high/low. A **red** number is 4° or more **warmer** than that
+day's average; a **blue** one is 4° or more **colder**.
 
 To add or change a key, right-click the panel → **Edit API keys…**, paste it, and save.
 `config.json` and `keys.json` stay on your PC and are never uploaded (they're git-ignored).

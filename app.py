@@ -181,10 +181,11 @@ class Api:
     # -- called from the page
     def settings(self):
         return {"locked": self._pos.get("locked", False), "compact": self._pos.get("compact", False),
-                "zoom": self._pos.get("zoom", 1), "tab": self._pos.get("tab", "hourly")}
+                "zoom": self._pos.get("zoom", 1), "tab": self._pos.get("tab", "hourly"),
+                "tabh": self._pos.get("tabh")}
 
     def remember(self, key, value):
-        if key in ("compact", "zoom", "tab"):
+        if key in ("compact", "zoom", "tab", "tabh"):
             self._set(**{key: value})
 
     def toggle_lock(self):
