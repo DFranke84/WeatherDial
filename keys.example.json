@@ -1,6 +1,7 @@
 {
   "_help": "Paste each free key between the quotes. Leave blank to skip that source. This file stays on this PC only.",
   "tempest_token": "",
+  "weathercom": "",
   "pirateweather": "",
   "visualcrossing": "",
   "weatherapi": "",

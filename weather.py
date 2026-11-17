@@ -434,6 +434,26 @@ def src_weather_display(cfg, keys, clock):
             "daily": [], "hourly": []}
 
 
+def src_weathercom(cfg, keys, clock):
+    """weather.com (The Weather Company) 5-day forecast. The free key for Weather Underground
+    station owners only covers the daily 5-day forecast (no hourly, no 7/10-day)."""
+    d = get(f"https://api.weather.com/v3/wx/forecast/daily/5day?geocode={cfg['lat']},{cfg['lon']}"
+            f"&format=json&units=e&language=en-US&apiKey={urllib.parse.quote(keys['weathercom'])}")
+    dp = (d.get("daypart") or [{}])[0]
+    part = lambda k, j: (dp.get(k) or [None] * 99)[j] if j < len(dp.get(k) or []) else None
+    daily = []
+    for i, when in enumerate(d["validTimeLocal"]):
+        day_txt, night_txt = part("wxPhraseLong", 2 * i), part("wxPhraseLong", 2 * i + 1)
+        pops = [p for p in (part("precipChance", 2 * i), part("precipChance", 2 * i + 1)) if p is not None]
+        text = day_txt or night_txt
+        daily.append({"date": when[:10],
+                      "hi": d["calendarDayTemperatureMax"][i], "lo": d["calendarDayTemperatureMin"][i],
+                      "pop": max(pops) if pops else None, "precip": d["qpf"][i],
+                      "snow": d["qpfSnow"][i], "text": text, "icon": text_icon(text),
+                      "narrative": d["narrative"][i]})
+    return {"daily": daily, "hourly": []}
+
+
 def src_pirate(cfg, keys, clock):
     d = get(f"https://api.pirateweather.net/forecast/{urllib.parse.quote(keys['pirateweather'])}/"
             f"{cfg['lat']},{cfg['lon']}?units=us&extend=hourly")
@@ -518,6 +538,7 @@ SOURCES = [
     ("Air quality", src_air, None, 30, None),
     ("Tempest (live, local)", src_weather_display, None, 0, None),
     ("Your Tempest", src_tempest, "tempest_token", 5, "https://tempestwx.com/settings/tokens"),
+    ("Weather.com", src_weathercom, "weathercom", 30, "https://www.wunderground.com/member/api-keys"),
     ("Pirate Weather", src_pirate, "pirateweather", 30, "https://pirate-weather.apiable.io/"),
     ("Visual Crossing", src_visualcrossing, "visualcrossing", 60, "https://www.visualcrossing.com/sign-up"),
     ("WeatherAPI", src_weatherapi, "weatherapi", 30, "https://www.weatherapi.com/signup.aspx"),
@@ -612,7 +633,9 @@ def fetch(force=False):
             continue
         if name == "Open-Meteo" or not data["daily"]:   # blend / live-only: not a separate forecast
             continue
-        fc_daily[name], fc_hourly[name] = data["daily"], data["hourly"]
+        fc_daily[name] = data["daily"]
+        if data["hourly"]:
+            fc_hourly[name] = data["hourly"]
     if "models" in status and results.get("models"):
         status.pop("models")
     if "Tempest (live, local)" in status and not cfg.get("weather_display_dir"):

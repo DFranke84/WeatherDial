@@ -75,6 +75,7 @@ hides while its monitor is off and comes back when the monitor is on again.
 | RainViewer + Esri map | none | radar |
 | Weather Display (on this PC) | none | your Tempest live, read from Weather Display's `sentwurapiddata.txt`. Set `weather_display_dir` in config.json. |
 | Tempest cloud | free personal token: tempestwx.com → Settings → Data Authorizations | lightning, yesterday's rain, Tempest's own forecast |
+| Weather.com | free key for Weather Underground station owners: wunderground.com/member/api-keys | weather.com's own 5-day forecast (the free key doesn't include hourly or 7/10-day) |
 | Pirate Weather | free key | forecast |
 | WeatherAPI.com | free key | forecast (3 days on the free plan after the trial) |
 | Visual Crossing | free key | forecast |
