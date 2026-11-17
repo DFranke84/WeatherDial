@@ -579,7 +579,7 @@ def src_weather_display(cfg, keys, clock):
         diff = plog[-1][1] - old[0][1]
         trend = "rising" if diff > .03 else "falling" if diff < -.03 else "steady"
     wx = WD_WEATHER.get(q.get("weather") or "")
-    return {"now": {"station": "Your Tempest (via Weather Display)", "time": clock.from_epoch(when.timestamp()).isoformat(),
+    return {"now": {"station": "Your Tempest (live)", "time": clock.from_epoch(when.timestamp()).isoformat(),
                     "temp": r1(temp), "feels": r1(feels), "rh": r0(rh), "dew": r1(f("dewptf")),
                     "wind": r0(wind), "gust": r0(f("windgustmph")), "dir": f("winddir"),
                     "pressure": f("baromin"), "trend": trend, "uv": f("UV"), "solar": f("solarradiation"),

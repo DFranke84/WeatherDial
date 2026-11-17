@@ -53,7 +53,10 @@
   .alert .more { display: none; white-space: pre-wrap; color: var(--alertmore); margin-top: 6px; font-size: 12px; }
   .alert.open .more { display: block; }
 
-  .now { display: grid; grid-template-columns: 74px auto 1fr; gap: 4px 12px; padding: 10px 12px 6px; align-items: center; }
+  .now .clock { text-align: right; align-self: start; white-space: nowrap; }
+  .now .clock .tm { font-size: 22px; font-weight: 300; line-height: 1.1; }
+  .now .clock .dt { color: var(--dim); font-size: 12px; }
+  .now { display: grid; grid-template-columns: 74px auto 1fr auto; gap: 4px 12px; padding: 10px 12px 6px; align-items: center; }
   .now .big { font-size: 46px; font-weight: 300; line-height: 1; }
   .now .big sup { font-size: 20px; color: var(--dim); }
   .now .cond { font-size: 15px; }
@@ -153,6 +156,8 @@
   .acc.none { background: var(--track); color: var(--faint); font-weight: 400; }
   .accbar { color: var(--dim); font-size: 12px; margin: 2px 0 6px; cursor: help; }
   .accbar small { color: var(--faint); }
+  .wtog { display: block; margin-top: 3px; cursor: help; }
+  .wtog input { vertical-align: -2px; margin: 0 4px 0 0; cursor: pointer; }
   .accsel { background: var(--cell); color: var(--text); border: 1px solid var(--edge); border-radius: 4px; font: inherit; }
   .src { display: grid; grid-template-columns: 12px 1fr auto 52px; gap: 8px; align-items: center; padding: 3px 0; border-bottom: 1px solid var(--hair); }
   .src .note { color: var(--faint); font-size: 12px; }
@@ -261,6 +266,14 @@ function windTip(w) {
   if (y) lines.push(`Max yesterday: wind ${f0(y.wind)} mph, gust ${f0(y.gust)} mph` + (y.since && y.since !== "00:00" ? ` (from ${hhmm(y.since)})` : ""));
   return lines.join("\n");
 }
+// Clock at the top right, updated every second.
+function tick() {
+  const n = new Date(), t = $("clkT"), d = $("clkD");
+  if (!t) return;
+  t.textContent = n.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  d.textContent = n.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+}
+setInterval(tick, 1000);
 const moonGlyph = p => ["🌑","🌒","🌓","🌔","🌕","🌖","🌗","🌘"][Math.round(p * 8) % 8];
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 function ago(iso) {
@@ -283,7 +296,9 @@ function render() {
     <div class="big">${f0(n.temp)}<sup>°F</sup></div>
     <div><div class="cond">${esc(n.text || "")}</div>
       <div class="hilo">High <b>${f0(today.hi)}°</b> · Low <b>${f0(today.lo)}°</b> · Feels <b>${f0(n.feels)}°</b></div>
-      <div class="from">from ${esc(n.station || "–")} · ${n.age_s != null ? (n.age_s < 60 ? n.age_s + " s ago" : ago(n.time)) : ago(n.time)}</div></div>`;
+      <div class="from">from ${esc(n.station || "–")} · ${n.age_s != null ? (n.age_s < 60 ? n.age_s + " s ago" : ago(n.time)) : ago(n.time)}</div></div>
+    <div class="clock"><div class="tm" id="clkT"></div><div class="dt" id="clkD"></div></div>`;
+  tick();
 
   const aq = aqiInfo(D.air?.us_aqi);
   const trendArrow = { rising: "↗", falling: "↘", steady: "→" }[n.trend] || "";
@@ -383,6 +398,16 @@ function renderHourly(force) {
     s += `<text x="${x(i)}" y="${bot - 20}" text-anchor="middle">${hourLabel(h.t)}</text>`;
     s += `<text x="${x(i)}" y="${bot - 6}" text-anchor="middle" style="fill:var(--cwind)">${f0(h.wind)}</text>`; });
   s += `<text x="0" y="${bot - 6}" style="fill:var(--cwind)">mph</text>`;
+  // "Now" marker: where the current time falls between the first hours of the chart.
+  const frac = (Date.now() - new Date(H[0].t)) / 3600000;
+  if (frac >= 0 && frac <= H.length - 1) {
+    const xn = x(0) + frac * (W - 44) / (H.length - 1), i0 = Math.floor(frac), f = frac - i0;
+    const tn = H[i0].temp + ((H[i0 + 1]?.temp ?? H[i0].temp) - H[i0].temp) * f;
+    s += `<line x1="${xn}" x2="${xn}" y1="${top - 8}" y2="${bot - 18}" style="stroke:var(--accent)" stroke-width="1.5"/>
+      <circle cx="${xn}" cy="${y(tn)}" r="3.5" style="fill:var(--accent);stroke:var(--cell)" stroke-width="1.5"/>
+      <rect x="${xn - 15}" y="${top - 21}" width="30" height="13" rx="3" style="fill:var(--accent)"/>
+      <text x="${xn}" y="${top - 11}" text-anchor="middle" style="fill:var(--cell);font-weight:600">now</text>`;
+  }
   s += `<line id="cur" y1="${top - 8}" y2="${bot - 18}" style="stroke:var(--ccur)" visibility="hidden"/>`;
   $("t-hourly").innerHTML = `<div><span class="seg" id="span"><span data-h="48" class="${hourSpan === 48 ? "on" : ""}">48 hours</span><span data-h="168" class="${hourSpan === 168 ? "on" : ""}">7 days</span></span>
     <span class="legend"><i style="background:#ffb347"></i>forecast<i style="background:#7cc4ff44;height:8px"></i>all sources' range<i style="background:#4d9fffaa;height:8px"></i>chance of rain/snow</span></div>
@@ -427,7 +452,7 @@ function renderDaily() {
       ${myP.map(p => `<p><b>${p.name}:</b> ${esc(p.detail)}</p>`).join("")}
       ${dd.sunrise ? `<p>Sunrise ${clock(dd.sunrise)} · sunset ${clock(dd.sunset)} · UV ${dd.uv ?? "–"}${dd.snow ? ` · snow ${dd.snow.toFixed(1)}"` : ""}${dd.precip ? ` · precip ${dd.precip.toFixed(2)}"` : ""} · gusts ${f0(dd.gust)} mph</p>` : ""}
       <table>${srcRows}</table></div>`;
-  }).join("") + `<p style="color:var(--faint);font-size:11px;margin:8px 0 0">High/low = average of all sources. Thin marks = the coldest low and warmest high any source predicts. Dot = how well the sources agree (green good, yellow fair, red they disagree). Click a day for details.</p>`;
+  }).join("") + `<p style="color:var(--faint);font-size:11px;margin:8px 0 0">High/low = ${W ? "average of all sources, weighted so the most accurate ones count more (switch on the Compare tab)" : "average of all sources"}. Thin marks = the coldest low and warmest high any source predicts. Dot = how well the sources agree (green good, yellow fair, red they disagree). Click a day for details.</p>`;
 }
 function periodDate(p) {
   // NWS period names: "Today", "Tonight", "Wednesday", "Wednesday Night"...
@@ -467,30 +492,68 @@ function accuracy() {
   ranked.forEach(([s], i) => { out[s].rank = i + 1; out[s].of = ranked.length; });
   return { by: out, days: rows.length };
 }
+// Weighted averages: each source counts 1 / (its average miss)², so more accurate sources count
+// more. Needs 7 scored days, else the source counts as a typical one; weights are kept between
+// 1/3 and 3 times the typical weight. The switch on the Compare tab turns this off.
+let weighted = true, W = null;
+function sourceWeights(A) {
+  const scored = Object.entries(A.by).filter(([, a]) => a.n >= 7 && a.mae > 0).map(([s, a]) => [s, 1 / (a.mae * a.mae)]);
+  if (!scored.length) return null;
+  const ws = scored.map(([, w]) => w).sort((a, b) => a - b), typical = ws[Math.floor(ws.length / 2)];
+  const out = { _typical: typical };
+  for (const [s, w] of scored) out[s] = Math.max(typical / 3, Math.min(typical * 3, w));
+  return out;
+}
+function applyWeights() {
+  W = weighted ? sourceWeights(accuracy()) : null;
+  for (const d of D.days)
+    for (const k of ["hi", "lo"]) {
+      if (d[k + "_simple"] === undefined) d[k + "_simple"] = d[k];
+      if (!W) { d[k] = d[k + "_simple"]; continue; }
+      let sum = 0, wsum = 0;
+      for (const [s, v] of Object.entries(d.by))
+        if (v[k] != null) { const w = W[s] ?? W._typical; sum += v[k] * w; wsum += w; }
+      if (wsum) d[k] = Math.round(sum / wsum);
+    }
+}
+const shareOf = s => { if (!W) return null; const tot = Object.keys(D.days[1]?.by || {}).reduce((t, x) => t + (W[x] ?? W._typical), 0);
+  return Math.round((W[s] ?? W._typical) / tot * 100); };
+
 function accBadge(src, A) {
   const a = A.by[src];
   if (!a || !a.rank) {
     const n = a ? a.n : 0;
+    const share = shareOf(src);
     return `<span class="acc none" title="${esc(`${src}: not enough history yet (${n} day${n === 1 ? "" : "s"} scored, needs 3).\n` +
-      "WeatherDial saves each source's forecasts and checks them against your station every day, so this fills in by itself.")}">${n ? n + "d" : "…"}</span>`;
+      "WeatherDial saves each source's forecasts and checks them against your station every day, so this fills in by itself." +
+      (share != null ? `\nIn the weighted average it counts as a typical source for now (about ${share}%).` : ""))}">${n ? n + "d" : "…"}</span>`;
   }
   const g = a.of > 1 ? 5 - 4 * (a.rank - 1) / (a.of - 1) : 5;
   const lean = Math.abs(a.bias) < 0.75 ? "No consistent lean warm or cold."
     : `Tends to run ${Math.abs(a.bias).toFixed(1)}° too ${a.bias > 0 ? "warm" : "cold"}.`;
+  const share = shareOf(src);
   const tip = `${src}: next-day forecast vs your station, last ${accDays} days (${a.n} days scored)\n` +
     `Off by ${a.mae.toFixed(1)}° on average (highs ${a.mhi?.toFixed(1) ?? "–"}°, lows ${a.mlo?.toFixed(1) ?? "–"}°).\n` +
-    `${lean}\nRanks #${a.rank} of ${a.of}. Lower is better.`;
+    `${lean}\nRanks #${a.rank} of ${a.of}. Lower is better.` +
+    (share != null ? `\nShare of the weighted average: about ${share}%${a.n < 7 ? " (counts as a typical source until it has 7 days)" : ""}.` : "");
   return `<span class="acc" style="background:${goodCol(Math.round(g))}" title="${esc(tip)}">±${a.mae.toFixed(1)}°</span>`;
 }
+const WEIGHT_EXPLAIN = "On: each day's high and low is a weighted average, so the sources that have been " +
+  "most accurate at your place (over the period chosen beside it) count more. A source's weight is " +
+  "1 ÷ (its average miss)², kept between ⅓ and 3 times a typical source's weight. Sources with less " +
+  "than 7 days of history count as typical.\nOff: every source counts the same.";
 function accSelector(A) {
-  return `<div class="accbar" title="${esc(ACC_EXPLAIN)}">Accuracy ⓘ over the last
+  return `<div class="accbar"><span title="${esc(ACC_EXPLAIN)}">Accuracy ⓘ over the last
     <select class="accsel">${ACC_CHOICES.map(n => `<option value="${n}" ${n === accDays ? "selected" : ""}>${n}</option>`).join("")}</select>
-    days <small>(${A.days} day${A.days === 1 ? "" : "s"} of your station's highs and lows so far)</small></div>`;
+    days</span> <small>(${A.days} day${A.days === 1 ? "" : "s"} of your station's highs and lows so far)</small>
+    <label class="wtog" title="${esc(WEIGHT_EXPLAIN)}"><input type="checkbox" class="wchk" ${weighted ? "checked" : ""}> Weight the averages by accuracy ⓘ</label></div>`;
 }
 document.addEventListener("change", e => {
-  if (!e.target.classList.contains("accsel")) return;
-  accDays = +e.target.value; app()?.remember("acc_days", accDays);
-  renderCompare(); renderSources();
+  const t = e.target;
+  if (t.classList.contains("accsel")) { accDays = +t.value; app()?.remember("acc_days", accDays); }
+  else if (t.classList.contains("wchk")) { weighted = t.checked; app()?.remember("weighted", weighted); }
+  else return;
+  applyWeights(); render();
 });
 
 function renderCompare() {
@@ -504,7 +567,10 @@ function renderCompare() {
     return `<td title="${esc(tip)}"><span class="${dev(v.hi, d.hi)}">${f0(v.hi)}</span><span style="color:var(--faint)">/</span><span class="${dev(v.lo, d.lo)}">${f0(v.lo)}</span></td>`; };
   let h = `<h4>Highs / lows by source</h4>${accSelector(A)}<table class="cmp"><tr><th></th><th title="${esc(ACC_EXPLAIN)}">Accuracy ⓘ</th>${days.map((d, i) => `<th>${i ? dayName(d.date) : "Today"}</th>`).join("")}</tr>`;
   h += srcs.map(s => `<tr><td>${s}</td><td>${accBadge(s, A)}</td>${days.map((d, i) => cell(d, s, i)).join("")}</tr>`).join("");
-  h += `<tr class="cons"><td>Average</td><td></td>${days.map(d => `<td title="Average of ${d.hi_n} sources: high ${f0(d.hi)}°, low ${f0(d.lo)}°">${f0(d.hi)}/${f0(d.lo)}</td>`).join("")}</tr>`;
+  const avgTip = d => W
+    ? `Weighted average of ${d.hi_n} sources (the more accurate ones count more): high ${f0(d.hi)}°, low ${f0(d.lo)}°.\nPlain average would be ${f0(d.hi_simple)}° / ${f0(d.lo_simple)}°.`
+    : `Average of ${d.hi_n} sources, all counting the same: high ${f0(d.hi)}°, low ${f0(d.lo)}°`;
+  h += `<tr class="cons"><td title="${esc(W ? WEIGHT_EXPLAIN : "Every source counts the same.")}">${W ? "Weighted avg ⓘ" : "Average"}</td><td></td>${days.map(d => `<td title="${esc(avgTip(d))}">${f0(d.hi)}/${f0(d.lo)}</td>`).join("")}</tr>`;
   h += `<tr><td style="color:var(--dim)">Spread (highs)</td><td></td>${days.map(d => `<td style="color:var(--dim)" title="Warmest high ${d.hi_max}° minus coldest high ${d.hi_min}°. Bigger = the sources disagree more.">${d.hi_max - d.hi_min}°</td>`).join("")}</tr></table>`;
   h += `<p style="color:var(--dim);font-size:11px;margin-top:6px">Each cell is <b>high/low</b>. <span class="dev-hi">Red</span> = 4° or more <b>warmer</b> than the average of all sources that day; <span class="dev-lo">blue</span> = 4° or more <b>colder</b>. White = within 4°. Hover over a cell for details.</p>`;
   h += `<h4>Right now</h4><table class="cmp"><tr><th>Reading</th><th>Temp</th><th>Wind</th><th>Humidity</th><th>Pressure</th></tr>` +
@@ -698,7 +764,9 @@ window.addEventListener("pywebviewready", async () => {
   if (s.tabh) setTabHeight(s.tabh, false);
   if (s.pw) setPanelWidth(s.pw, false);
   setTheme(s.theme || "dark", false);
-  if (s.acc_days) { accDays = s.acc_days; if (D) { renderCompare(); renderSources(); } }
+  if (s.acc_days) accDays = s.acc_days;
+  if (s.weighted === false) weighted = false;
+  if (D) { applyWeights(); render(); }
   const r = $("panel").getBoundingClientRect();
   app().fit(Math.ceil(r.right) + 1, Math.ceil(r.bottom) + 1);
 });
@@ -712,6 +780,7 @@ async function load(force) {
       D.minutecast = D.indices = null;
       if (D.now) ["strikes_3h", "strike_dist", "strike_time", "rain_yesterday"].forEach(k => delete D.now[k]);
     }
+    applyWeights();
     const openDays = [...document.querySelectorAll(".detail.open")].map(x => x.id);
     const scrolls = [...document.querySelectorAll(".tab")].map(t => t.scrollTop);   // keep your place
     render();
@@ -722,7 +791,11 @@ async function load(force) {
 load().then(() => {   // ?tab=daily / ?compact: open that way (used for screenshots)
   if (Q.get("tab")) showTab(Q.get("tab"));
   if (Q.has("compact")) setCompact(true);
-  if (Q.get("acc")) { accDays = +Q.get("acc"); renderCompare(); renderSources(); }
+  if (Q.get("acc") || Q.has("simple")) {
+    if (Q.get("acc")) accDays = +Q.get("acc");
+    if (Q.has("simple")) weighted = false;
+    applyWeights(); render();
+  }
   if (Q.get("pw")) setPanelWidth(+Q.get("pw"), false);
   if (Q.get("theme")) setTheme(Q.get("theme"), false);
   if (Q.get("tabh")) setTabHeight(+Q.get("tabh"), false, true);

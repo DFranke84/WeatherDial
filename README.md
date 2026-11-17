@@ -8,6 +8,7 @@ live readings on top.
 
 ## What it shows
 
+- **Clock:** the time and date at the top right.
 - **Now:** your own station (Tempest) if you have one, else the nearest official station,
   else the model. Shows wind and gusts, humidity and dew point, pressure and its 3-hour trend,
   rain today, UV and solar, sunrise and sunset, moon, air quality and lightning.
@@ -18,8 +19,9 @@ live readings on top.
 - **Hourly:** a 48-hour or 7-day chart. It shows the forecast line (the official NWS forecast
   where it has one), a shaded band for the range of all sources, feels-like (dotted),
   chance of rain or snow (blue bars for rain, white for snow), wind, night shading and the
-  freezing line.
-- **16-Day:** the average of all sources for each day, with a coloured dot for how well they
+  freezing line. A blue **now** line (with a dot on the temperature line) marks the current
+  moment.
+- **16-Day:** the average of all sources for each day (weighted by accuracy, see below), with a coloured dot for how well they
   agree.
 - **Compare:** every source's highs and lows side by side, plus the current readings from
   your station, the nearest airport and the model.
@@ -171,7 +173,8 @@ Underground. Weather Display can do that upload for you.
 
 ## How the numbers are worked out
 
-- **Daily high and low** = the average of every source that forecasts that day. Every
+- **Daily high and low** = the average of every source that forecasts that day, weighted by
+  accuracy unless you switch that off. Every
   source's low is the *calendar-day* low (that morning). AccuWeather gives the following
   night's low instead, so its lows are moved to the next day to line up.
 - **Agreement dot** (16-Day): green when all sources' highs and lows are within 5°, yellow
@@ -205,6 +208,17 @@ Underground. Weather Display can do that upload for you.
   WeatherDial first saves them. Until a source has 3 days, its badge shows how many it has
   so far.
 - The history is kept in `data/verify/` (about a year).
+
+**Weighted averages** (on by default; switch: *Weight the averages by accuracy* on the Compare
+and Sources tabs). Each day's high and low then count the more accurate sources more:
+
+- A source's weight is 1 ÷ (its average miss)². With a 3.3° miss it counts about three times
+  as much as a source with a 5.6° miss.
+- It's kept between ⅓ and 3 times a typical source's weight, so no single source takes over.
+- A source with less than 7 days of history counts as a typical source.
+- The weights follow the period chosen in the accuracy box.
+- Hover a badge to see that source's share of the average. Hover a **Weighted avg** cell to
+  compare it with the plain average.
 
 ## How fresh is each part?
 
