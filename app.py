@@ -184,10 +184,11 @@ class Api:
                 "zoom": self._pos.get("zoom", 1), "tab": self._pos.get("tab", "hourly"),
                 "tabh": self._pos.get("tabh"), "pw": self._pos.get("pw"),
                 "theme": self._pos.get("theme", "dark"), "acc_days": self._pos.get("acc_days", 30),
-                "weighted": self._pos.get("weighted", True)}
+                "weighted": self._pos.get("weighted", True), "gstyle": self._pos.get("gstyle", "classic"),
+                "rpaused": self._pos.get("rpaused", False)}
 
     def remember(self, key, value):
-        if key in ("compact", "zoom", "tab", "tabh", "pw", "theme", "acc_days", "weighted"):
+        if key in ("compact", "zoom", "tab", "tabh", "pw", "theme", "acc_days", "weighted", "gstyle", "rpaused"):
             self._set(**{key: value})
 
     def toggle_lock(self):

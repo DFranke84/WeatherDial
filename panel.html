@@ -156,6 +156,20 @@
   .acc.none { background: var(--track); color: var(--faint); font-weight: 400; }
   .accbar { color: var(--dim); font-size: 12px; margin: 2px 0 6px; cursor: help; }
   .accbar small { color: var(--faint); }
+  #t-gauges { position: relative; }
+  .gbar { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .gbar .help { margin-left: auto; cursor: pointer; color: var(--accent); }
+  .gcap { color: var(--dim); font-size: 12px; text-align: center; margin-top: 2px; }
+  .gcap b { color: var(--text); }
+  .dials { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .dials svg { width: 100%; height: auto; display: block; }
+  .helpbox { position: absolute; inset: 6px; background: var(--cell); border: 1px solid var(--edge); border-radius: 10px;
+             padding: 10px 14px; overflow-y: auto; z-index: 7; font-size: 12.5px; line-height: 1.45; box-shadow: 0 6px 24px #0006; }
+  .helpbox h3 { margin: 2px 0 6px; font-size: 14px; }
+  .helpbox h5 { margin: 10px 0 3px; font-size: 12px; color: var(--accent); text-transform: uppercase; letter-spacing: .04em; }
+  .helpbox ul { margin: 0; padding-left: 18px; } .helpbox li { margin: 2px 0; }
+  .helpbox table { border-collapse: collapse; margin-top: 4px; } .helpbox td { padding: 2px 8px 2px 0; vertical-align: top; }
+  .helpbox .x { position: absolute; top: 6px; right: 10px; cursor: pointer; color: var(--dim); font-size: 16px; }
   .wtog { display: block; margin-top: 3px; cursor: help; }
   .wtog input { vertical-align: -2px; margin: 0 4px 0 0; cursor: pointer; }
   .accsel { background: var(--cell); color: var(--text); border: 1px solid var(--edge); border-radius: 4px; font: inherit; }
@@ -183,12 +197,13 @@
   <div class="mini3" id="mini3"></div>
   <nav id="nav">
     <div data-t="hourly" class="on">Hourly</div><div data-t="daily">16-Day</div><div data-t="compare">Compare</div>
-    <div data-t="radar">Radar</div><div data-t="health" id="navHealth" hidden>Health</div><div data-t="afd">Forecaster</div><div data-t="sources">Sources</div>
+    <div data-t="radar">Radar</div><div data-t="gauges">Gauges</div><div data-t="health" id="navHealth" hidden>Health</div><div data-t="afd">Forecaster</div><div data-t="sources">Sources</div>
   </nav>
   <div class="tab on" id="t-hourly"></div>
   <div class="tab" id="t-daily"></div>
   <div class="tab" id="t-compare"></div>
   <div class="tab" id="t-radar"><div id="radar"></div><div style="margin-top:6px;color:var(--dim)" id="radarInfo"></div></div>
+  <div class="tab" id="t-gauges"></div>
   <div class="tab" id="t-health"></div>
   <div class="tab" id="t-afd"></div>
   <div class="tab" id="t-sources"></div>
@@ -321,7 +336,7 @@ function render() {
   $("mini3").innerHTML = D.days.slice(0, 4).map((d, i) => `<div>${i ? dayName(d.date) : "Today"}<br>${icon(d.icon, 26)}<br>
     <span style="color:var(--warm)">${f0(d.hi)}°</span> <span style="color:var(--cold)">${f0(d.lo)}°</span></div>`).join("");
 
-  renderMinuteCast(); renderHealth();
+  renderMinuteCast(); renderHealth(); renderGauges();
   if ($("t-radar").classList.contains("on")) radar();   // keeps an open radar tab current
   renderHourly(); renderDaily(); renderCompare(); renderAfd(); renderSources();
 }
@@ -596,7 +611,195 @@ function renderSources() {
   }).join("") + `<p style="color:var(--faint);font-size:11px">To add or change a key: right-click the panel → <b>Edit API keys…</b>, paste it, save. It's used from the next refresh. Radar: RainViewer. Map: Esri.</p>`;
 }
 
-// ---------------------------------------------------------------- radar (RainViewer over CARTO dark tiles)
+// ---------------------------------------------------------------- gauges (barometer / thermometer)
+let gStyle = "classic", helpOpen = false;
+const P2A = p => -135 + (p - 28) / 3 * 270;            // inHg -> degrees (0 = straight up), 28-31 in
+const T2A = t => 220 - (Math.max(20, Math.min(110, t)) - 20) / 90 * 80;   // °F -> bottom arc 220°..140°
+const pol = (a, r, c = 200) => [c + r * Math.sin(a * Math.PI / 180), c - r * Math.cos(a * Math.PI / 180)];
+const ln = (a, r1, r2, st) => { const [x1, y1] = pol(a, r1), [x2, y2] = pol(a, r2); return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" ${st}/>`; };
+function needle(a, len, tail, w, col, extra = "") {   // a pointer drawn pointing up, then rotated
+  return `<g transform="rotate(${a} 200 200)" ${extra}><path d="M${200 - w} 200 L200 ${200 - len} L${200 + w} 200 L200 ${200 + tail}Z" style="fill:${col}"/></g>`;
+}
+
+function classicBarometer(n, g) {
+  const ink = "#2b2620", face = "#f6f1e4";
+  let s = `<defs><radialGradient id="rim" cx="40%" cy="35%"><stop offset="0" stop-color="#f1dca4"/><stop offset=".6" stop-color="#b58e4f"/><stop offset="1" stop-color="#7d5d2e"/></radialGradient>
+    <radialGradient id="glass" cx="35%" cy="25%"><stop offset="0" stop-color="#fff" stop-opacity=".35"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/></radialGradient></defs>
+    <circle cx="200" cy="200" r="198" fill="url(#rim)"/><circle cx="200" cy="200" r="184" fill="${face}"/>
+    <circle cx="200" cy="200" r="184" fill="none" stroke="#00000033"/>`;
+  // inches of mercury: outer scale
+  for (let p = 28; p <= 31.0001; p += 0.05) {
+    const a = P2A(p), big = Math.abs(p * 2 - Math.round(p * 2)) < 1e-6, ten = Math.abs(p * 10 - Math.round(p * 10)) < 1e-6;
+    s += ln(a, 172, big ? 156 : ten ? 161 : 166, `stroke="${ink}" stroke-width="${big ? 2 : 1}"`);
+    if (big) { const [x, y] = pol(a, 145); s += `<text x="${x}" y="${y + 4}" text-anchor="middle" style="fill:${ink};font:${Number.isInteger(+p.toFixed(1)) ? "700 14px" : "11px"} Georgia,serif">${(+p.toFixed(1)).toString()}</text>`; }
+  }
+  s += `<path d="M${pol(-135, 172).join(" ")} A172 172 0 1 1 ${pol(135, 172).join(" ")}" fill="none" stroke="${ink}" stroke-width="1.2"/>`;
+  // millibars: inner scale
+  for (let mb = 950; mb <= 1050; mb += 5) {
+    const a = P2A(mb * 0.02953), ten = mb % 10 === 0;
+    s += ln(a, 128, ten ? 120 : 124, `stroke="${ink}" stroke-width="${ten ? 1.2 : .8}"`);
+    if (mb % 20 === 0) { const [x, y] = pol(a, 110); s += `<text x="${x}" y="${y + 3}" text-anchor="middle" style="fill:${ink};font:9px Georgia,serif">${mb}</text>`; }
+  }
+  s += `<path d="M${pol(-135, 128).join(" ")} A128 128 0 1 1 ${pol(135, 128).join(" ")}" fill="none" stroke="${ink}" stroke-width=".8"/>`;
+  // the traditional words
+  [["STORMY", 28.55], ["RAIN", 29.1], ["CHANGE", 29.6], ["FAIR", 30.1], ["VERY DRY", 30.65]].forEach(([w, p]) => {
+    const a = P2A(p);
+    s += `<g transform="rotate(${a} 200 200)"><text x="200" y="${200 - 86}" text-anchor="middle" style="fill:#7a1f12;font:italic 700 15px Georgia,serif;letter-spacing:.5px">${w}</text></g>`;
+  });
+  s += `<text x="200" y="244" text-anchor="middle" style="fill:${ink};font:9px Georgia,serif;letter-spacing:1px">BAROMETER</text>
+    <text x="200" y="256" text-anchor="middle" style="fill:${ink};font:7.5px Georgia,serif;letter-spacing:1px">INCHES · MILLIBARS</text>`;
+  // thermometer: bottom arc, °F outside, °C inside
+  s += `<path d="M${pol(220, 160).join(" ")} A160 160 0 0 0 ${pol(140, 160).join(" ")}" fill="none" stroke="${ink}" stroke-width="1"/>`;
+  for (let t = 20; t <= 110; t += 2) {
+    const a = T2A(t), ten = t % 10 === 0;
+    s += ln(a, 160, ten ? 170 : 165, `stroke="${ink}" stroke-width="${ten ? 1.4 : .7}"`);
+    if (ten && t % 20 === 0) { const [x, y] = pol(a, 178); s += `<text x="${x}" y="${y + 3}" text-anchor="middle" style="fill:${ink};font:9px Georgia,serif">${t}</text>`; }
+  }
+  for (let c = -5; c <= 40; c += 5) {
+    const a = T2A(c * 9 / 5 + 32); s += ln(a, 160, 155, `stroke="${ink}" stroke-width=".8"`);
+    if (c % 10 === 0) { const [x, y] = pol(a, 146); s += `<text x="${x}" y="${y + 3}" text-anchor="middle" style="fill:${ink};font:8px Georgia,serif">${c}</text>`; }
+  }
+  s += `<text x="200" y="${200 + 128}" text-anchor="middle" style="fill:${ink};font:9px Georgia,serif;letter-spacing:1px">THERMOMETER °F / °C</text>`;
+  const td = g?.t_today;
+  if (td) {   // today's low / high marks on the thermometer arc
+    [[td.lo, "#2a74c9", "Today's low"], [td.hi, "#d9443a", "Today's high"]].forEach(([t, c, lab]) => {
+      const [x, y] = pol(T2A(t), 156), a = T2A(t);
+      s += `<g transform="rotate(${a} ${x} ${y})"><path d="M${x - 5} ${y + 7} L${x} ${y} L${x + 5} ${y + 7}Z" style="fill:${c}"><title>${lab}: ${f0(t)}°F</title></path></g>`;
+    });
+  }
+  // needles: gold = 24 h ago, black = now, red = temperature
+  if (g?.p_24h != null) s += needle(P2A(g.p_24h), 168, 0, 2.2, "#c9a227", `opacity=".95"><title>24 hours ago: ${g.p_24h.toFixed(2)} in</title><g`) + "</g>";
+  if (n.temp != null) s += needle(T2A(n.temp), 150, 0, 3, "#c0261a");
+  if (n.pressure) s += needle(P2A(+n.pressure), 160, 34, 4.5, "#1c1a18");
+  s += `<circle cx="200" cy="200" r="11" fill="url(#rim)" stroke="#5a4320"/><circle cx="200" cy="200" r="184" fill="url(#glass)"/>`;
+  return `<svg viewBox="0 0 400 400" style="width:100%;height:100%;display:block">${s}</svg>`;
+}
+
+function arcDial({ title, value, min, max, fmt, unit, color, marks = [], sub = "", tip = "" }) {
+  const v = Math.max(min, Math.min(max, value ?? min)), A = x => -135 + (x - min) / (max - min) * 270;
+  const arc = (a1, a2, r) => { const [x1, y1] = pol(a1, r, 100), [x2, y2] = pol(a2, r, 100);
+    return `M${x1} ${y1} A${r} ${r} 0 ${a2 - a1 > 180 ? 1 : 0} 1 ${x2} ${y2}`; };
+  let s = `<path d="${arc(-135, 135, 78)}" style="stroke:var(--track)" stroke-width="12" fill="none" stroke-linecap="round"/>`;
+  if (value != null) s += `<path d="${arc(-135, A(v), 78)}" style="stroke:${color}" stroke-width="12" fill="none" stroke-linecap="round"/>`;
+  for (const m of marks) if (m.v != null) {
+    const [x1, y1] = pol(A(Math.max(min, Math.min(max, m.v))), 64, 100), [x2, y2] = pol(A(Math.max(min, Math.min(max, m.v))), 92, 100);
+    s += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" style="stroke:${m.c}" stroke-width="3" stroke-linecap="round"><title>${esc(m.t)}</title></line>`;
+  }
+  s += `<text x="100" y="92" text-anchor="middle" style="fill:var(--text);font:300 30px 'Segoe UI'">${value == null ? "–" : fmt(value)}</text>
+    <text x="100" y="112" text-anchor="middle" style="fill:var(--dim);font-size:12px">${unit}</text>
+    <text x="100" y="178" text-anchor="middle" style="fill:var(--text);font-weight:600;font-size:13px">${title}</text>
+    <text x="100" y="196" text-anchor="middle" style="fill:var(--dim);font-size:11px">${sub}</text>
+    <text x="${pol(-135, 78, 100)[0]}" y="${pol(-135, 78, 100)[1] + 22}" text-anchor="middle" style="fill:var(--faint);font-size:9px">${fmt(min)}</text>
+    <text x="${pol(135, 78, 100)[0]}" y="${pol(135, 78, 100)[1] + 22}" text-anchor="middle" style="fill:var(--faint);font-size:9px">${fmt(max)}</text>`;
+  return `<svg viewBox="0 0 200 205"><title>${esc(tip)}</title>${s}</svg>`;
+}
+function windDial(n) {
+  const w = n.wind_max?.today;
+  let s = `<circle cx="100" cy="92" r="78" style="fill:none;stroke:var(--track)" stroke-width="12"/>`;
+  ["N", "E", "S", "W"].forEach((d, i) => { const [x, y] = pol(i * 90, 60, 100); s += `<text x="${x}" y="${y - 8 + 4}" text-anchor="middle" style="fill:var(--dim);font-size:11px;font-weight:600">${d}</text>`; });
+  for (let a = 0; a < 360; a += 30) { const [x1, y1] = pol(a, 70, 100), [x2, y2] = pol(a, 86, 100); s += `<line x1="${x1}" y1="${y1 - 8}" x2="${x2}" y2="${y2 - 8}" style="stroke:var(--faint)" stroke-width="1"/>`; }
+  if (n.dir != null) s += `<g transform="rotate(${n.dir} 100 92)"><path d="M100 18 L91 36 L109 36Z" style="fill:var(--accent)"/></g>`;
+  s += `<text x="100" y="96" text-anchor="middle" style="fill:var(--text);font:300 30px 'Segoe UI'">${f0(n.wind)}</text>
+    <text x="100" y="114" text-anchor="middle" style="fill:var(--dim);font-size:12px">mph ${compass(n.dir)}</text>
+    <text x="100" y="186" text-anchor="middle" style="fill:var(--text);font-weight:600;font-size:13px">Wind</text>
+    <text x="100" y="202" text-anchor="middle" style="fill:var(--dim);font-size:11px">gust ${f0(n.gust)}${w ? ` · max today ${f0(w.gust)}` : ""}</text>`;
+  return `<svg viewBox="0 0 200 205"><title>Wind from the ${compass(n.dir) || "–"} (the arrow points where it's coming from). Gusts ${f0(n.gust)} mph.</title>${s}</svg>`;
+}
+
+const HELP = () => ({
+  classic: `<h3>Reading the barometer</h3>
+    <h5>The needles</h5><ul>
+      <li><b>Black needle</b>: the air pressure now (adjusted to sea level, the way barometers and forecasts compare it, since your station sits at about ${(D?.location?.elevation_ft ?? 0).toLocaleString()} ft).</li>
+      <li><b>Gold needle</b>: where the pressure was <b>24 hours ago</b>, like the brass "set" needle you turn by hand on a real barometer.</li>
+      <li><b>Red needle</b> (bottom scale): the temperature now. The <span style="color:#2a74c9">blue</span> and <span style="color:#d9443a">red</span> marks are today's low and high so far.</li></ul>
+    <h5>The scales</h5><ul>
+      <li>Outer numbers: <b>inches of mercury</b> (inHg). Inner numbers: <b>millibars</b> (mb, the same as hPa).</li>
+      <li>Bottom arc: °F on the outside, °C on the inside.</li></ul>
+    <h5>What it tells you</h5><ul>
+      <li>The <b>change</b> matters more than the words. Black <b>clockwise (right)</b> of gold means pressure is <b>rising</b>, usually improving or clearing. <b>Counter-clockwise (left)</b> means <b>falling</b>, usually clouds, wind or rain coming.</li>
+      <li>The words (Stormy, Rain, Change, Fair, Very Dry) are the traditional rough guide for the reading itself.</li></ul>
+    <table><tr><td><b>Rising steadily</b></td><td>Fair weather on the way or holding</td></tr>
+      <tr><td><b>Steady, high</b></td><td>Settled</td></tr>
+      <tr><td><b>Steady, low</b></td><td>Unsettled weather continues</td></tr>
+      <tr><td><b>Falling slowly</b></td><td>Change, often rain or snow within 12 to 24 hours</td></tr>
+      <tr><td><b>Falling fast</b> (more than 0.06 in in 3 h)</td><td>Storm or strong wind likely soon</td></tr></table>
+    <p style="color:var(--dim)">The caption under the dial gives the exact numbers. Hover a needle or mark for its value.</p>`,
+  dials: `<h3>Reading the dials</h3><ul>
+      <li><b>Temperature</b>: the coloured arc fills from cold (purple, blue) to hot (orange, red). The <span style="color:#2a74c9">blue</span> and <span style="color:#d9443a">red</span> ticks are today's low and high so far.</li>
+      <li><b>Pressure</b> (sea level, inHg): the <span style="color:#c9a227">gold</span> tick is 24 hours ago and the grey tick 3 hours ago. Fill to the right of them means rising; to the left means falling. The arrow underneath is the 3-hour trend.</li>
+      <li><b>Humidity</b>: relative humidity in %. The dew point is the temperature at which dew, fog or frost forms. When the temperature gets close to it, expect fog, dew or frost.</li>
+      <li><b>Wind</b>: the arrow on the ring shows where the wind is <b>coming from</b>, like a weather vane, e.g. an arrow at N is a north wind. The middle is the speed now; underneath are the gusts and today's strongest gust.</li></ul>
+    <p style="color:var(--dim)">Hover any dial or tick for its exact value. Rising pressure usually means improving weather; falling pressure means change on the way.</p>`,
+});
+
+function renderGauges() {
+  const n = D.now || {}, g = D.gauges || {}, box = $("t-gauges");
+  const trendTxt = { rising: "↗ rising", falling: "↘ falling", steady: "→ steady" }[n.trend] || "";
+  let body;
+  if (gStyle === "classic") {
+    const size = Math.max(240, Math.min(innerW(), tabH - 70));
+    const d24 = g.p_24h != null && n.pressure ? +n.pressure - g.p_24h : null;
+    body = `<div style="width:${size}px;height:${size}px;margin:0 auto">${classicBarometer(n, g)}</div>
+      <div class="gcap">Now <b>${n.pressure ? (+n.pressure).toFixed(2) : "–"} in</b> ${trendTxt}
+        ${g.p_24h != null ? ` · 24 h ago ${g.p_24h.toFixed(2)} (${d24 >= 0 ? "+" : ""}${d24.toFixed(2)})` : ""}
+        · <b>${f0(n.temp)}°F</b>${g.t_today ? ` (today ${f0(g.t_today.lo)}–${f0(g.t_today.hi)}°)` : ""}</div>`;
+  } else {
+    const p = n.pressure ? +n.pressure : null, ch3 = p != null && g.p_3h != null ? p - g.p_3h : null;
+    const tlo = Math.min(0, Math.floor(((g.t_today?.lo ?? n.temp ?? 30) - 10) / 10) * 10), thi = Math.max(tlo + 60, Math.ceil(((g.t_today?.hi ?? n.temp ?? 60) + 10) / 10) * 10);
+    body = `<div class="dials">
+      ${arcDial({ title: "Temperature", value: n.temp, min: tlo, max: thi, fmt: v => Math.round(v) + "°", unit: "°F", color: tempColor(n.temp),
+        marks: g.t_today ? [{ v: g.t_today.lo, c: "#2a74c9", t: `Today's low ${f0(g.t_today.lo)}°F` }, { v: g.t_today.hi, c: "#d9443a", t: `Today's high ${f0(g.t_today.hi)}°F` }] : [],
+        sub: `feels ${f0(n.feels)}°${g.t_today ? ` · today ${f0(g.t_today.lo)}–${f0(g.t_today.hi)}°` : ""}`, tip: `Temperature ${f0(n.temp)}°F, feels like ${f0(n.feels)}°F` })}
+      ${arcDial({ title: "Pressure", value: p, min: 28.8, max: 30.8, fmt: v => v.toFixed(2), unit: "inHg (sea level)", color: "var(--accent)",
+        marks: [{ v: g.p_24h, c: "#c9a227", t: `24 hours ago: ${g.p_24h?.toFixed(2)} in` }, { v: g.p_3h, c: "#8a919c", t: `3 hours ago: ${g.p_3h?.toFixed(2)} in` }],
+        sub: `${trendTxt}${ch3 != null ? ` ${ch3 >= 0 ? "+" : ""}${ch3.toFixed(2)} in 3 h` : ""}`, tip: `Pressure ${p?.toFixed(2)} inHg, ${n.trend || ""}` })}
+      ${arcDial({ title: "Humidity", value: n.rh, min: 0, max: 100, fmt: v => Math.round(v) + "%", unit: "relative humidity", color: "var(--rain)",
+        sub: `dew point ${f0(n.dew)}°`, tip: `Humidity ${f0(n.rh)}%, dew point ${f0(n.dew)}°F` })}
+      ${windDial(n)}</div>`;
+  }
+  box.innerHTML = `<div class="gbar"><span class="seg" id="gseg"><span data-g="classic" class="${gStyle === "classic" ? "on" : ""}">Classic barometer</span><span data-g="dials" class="${gStyle === "dials" ? "on" : ""}">Modern dials</span></span>
+      <span class="help" id="ghelp">ⓘ How to read</span></div>${body}
+    ${helpOpen ? `<div class="helpbox"><span class="x" id="gx" title="Close">✕</span>${HELP()[gStyle]}</div>` : ""}`;
+}
+document.addEventListener("click", e => {
+  const s = e.target.closest("#gseg span");
+  if (s) { gStyle = s.dataset.g; app()?.remember("gstyle", gStyle); renderGauges(); return; }
+  if (e.target.closest("#ghelp")) { helpOpen = true; renderGauges(); return; }
+  if (e.target.closest("#gx")) { helpOpen = false; renderGauges(); }
+});
+
+// ---------------------------------------------------------------- radar (RainViewer over Esri tiles)
+let R = null, radarPaused = false;   // R = {layers, frames, k}; pause choice is remembered
+function radarShow(k) {
+  if (!R) return;
+  R.k = (k + R.layers.length) % R.layers.length;
+  R.layers.forEach((l, j) => l.style.visibility = j === R.k ? "visible" : "hidden");
+  const t = new Date(R.frames[R.k].time * 1000), mins = Math.round((Date.now() - t) / 60000);
+  $("rstamp").textContent = t.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) +
+    (mins > 1 ? ` · ${mins} min ago` : " · latest") + (radarPaused ? " · paused" : "");
+}
+function radarStep() {
+  clearTimeout(radarTimer);
+  if (!R) return;
+  radarShow(R.k);
+  if (radarPaused) return;
+  const wait = R.k === R.layers.length - 1 ? 2000 : 500;
+  R.k = (R.k + 1) % R.layers.length;
+  radarTimer = setTimeout(radarStep, wait);
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest(".rctl [data-r]"); if (!b || !R) return;
+  const act = b.dataset.r;
+  if (act === "play") {
+    radarPaused = !radarPaused; app()?.remember("rpaused", radarPaused);
+    $("rplay").textContent = radarPaused ? "▶ Play" : "⏸ Pause";
+    if (radarPaused) { clearTimeout(radarTimer); R.k = (R.k - 1 + R.layers.length) % R.layers.length; radarShow(R.k); }  // stay on the frame showing
+    else radarStep();
+    return;
+  }
+  radarPaused = true; app()?.remember("rpaused", true); clearTimeout(radarTimer); $("rplay").textContent = "▶ Play";
+  radarShow(act === "back" ? R.k - 1 : act === "fwd" ? R.k + 1 : R.layers.length - 1);
+});
 async function radar() {
   // The map fills the tab: as wide as the panel, as tall as the tab area allows.
   const light = document.body.classList.contains("light"), shade = light ? "Light" : "Dark";
@@ -621,18 +824,12 @@ async function radar() {
     const layers = frames.map(f => { const d = document.createElement("div"); d.className = "layer"; d.style.visibility = "hidden";
       d.innerHTML = tiles.map(([dx, dy]) => place(`${m.host}${f.path}/256/${z}/${tx + dx}/${ty + dy}/2/1_1.png`, dx, dy, .8)).join("");
       box.insertBefore(d, box.querySelector(".me")); return d; });
-    // Start on the newest frame, hold it ~2 s, then loop through the older ones.
-    let k = layers.length - 1, hold = 0; clearTimeout(radarTimer);
-    const step = () => {
-      layers.forEach((l, j) => l.style.visibility = j === k ? "visible" : "hidden");
-      const t = new Date(frames[k].time * 1000), mins = Math.round((Date.now() - t) / 60000);
-      $("rstamp").textContent = t.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) + (mins > 1 ? ` · ${mins} min ago` : " · latest");
-      const wait = k === layers.length - 1 ? 2000 : 500;
-      k = (k + 1) % layers.length;
-      radarTimer = setTimeout(step, wait);
-    };
-    step();
-    $("radarInfo").textContent = `Last ${frames.length * 10} minutes of radar, looping. Red dot = home.`;
+    // Start on the newest frame, hold it ~2 s, then loop through the older ones (unless paused).
+    R = { layers, frames, k: layers.length - 1 };
+    radarStep();
+    $("radarInfo").innerHTML = `<span class="seg rctl">
+        <span data-r="back" title="Previous frame">◀</span><span data-r="play" id="rplay" title="Pause or play the loop">${radarPaused ? "▶ Play" : "⏸ Pause"}</span><span data-r="fwd" title="Next frame">▶</span><span data-r="latest" title="Jump to the newest frame">Latest</span></span>
+      <span style="margin-left:8px">Last ${frames.length * 10} minutes of radar. Red dot = home.</span>`;
     box.dataset.ok = size;
   } catch (e) { $("radarInfo").textContent = "Radar not available: " + e.message; }
 }
@@ -766,6 +963,8 @@ window.addEventListener("pywebviewready", async () => {
   setTheme(s.theme || "dark", false);
   if (s.acc_days) accDays = s.acc_days;
   if (s.weighted === false) weighted = false;
+  if (s.gstyle) gStyle = s.gstyle;
+  if (s.rpaused) radarPaused = true;
   if (D) { applyWeights(); render(); }
   const r = $("panel").getBoundingClientRect();
   app().fit(Math.ceil(r.right) + 1, Math.ceil(r.bottom) + 1);
@@ -797,6 +996,7 @@ load().then(() => {   // ?tab=daily / ?compact: open that way (used for screensh
     applyWeights(); render();
   }
   if (Q.get("pw")) setPanelWidth(+Q.get("pw"), false);
+  if (Q.get("gstyle") || Q.has("ghelp")) { gStyle = Q.get("gstyle") || gStyle; helpOpen = Q.has("ghelp"); renderGauges(); }
   if (Q.get("theme")) setTheme(Q.get("theme"), false);
   if (Q.get("tabh")) setTabHeight(+Q.get("tabh"), false, true);
   if (Q.get("span")) { hourSpan = +Q.get("span"); renderHourly(); }

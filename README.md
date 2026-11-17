@@ -29,6 +29,18 @@ live readings on top.
   forecasts have come to what your own station measured, over a period you choose (default
   30 days). See *How accuracy is scored* below.
 - **Radar:** an animated loop of the last 80 minutes, starting on the newest frame.
+  ⏸ Pause / ▶ Play, ◀ ▶ to step one frame at a time, **Latest** to jump to the newest frame
+  (pausing is remembered).
+- **Gauges:** your station as instruments, in two styles (your choice is remembered):
+  - *Classic barometer*: an aneroid face (Stormy, Rain, Change, Fair, Very Dry) in inches and
+    millibars. The black needle is the pressure now, the gold needle the pressure 24 hours
+    ago, and the red needle on the bottom thermometer the temperature, with today's low and
+    high marked.
+  - *Modern dials*: temperature (today's low and high ticks), pressure (24 h and 3 h ago ticks
+    and the 3-hour change), humidity with dew point, and a wind compass with gusts and
+    today's strongest gust.
+  - **ⓘ How to read** opens a short guide for the style shown, including what rising and
+    falling pressure usually mean.
 - **Health** *(AccuWeather indices, optional)*: today and the next 4 days for health
   (arthritis, sinus, migraine, asthma, COPD, cold, flu, dry skin, pollen, mold, dust) and for
   outdoors and home (hiking, hunting, fishing, skiing, snow days, driving, lawn mowing,
@@ -54,6 +66,10 @@ live readings on top.
 | Light theme, made wider |
 |---|
 | ![Light and wide](docs/screenshots/light-wide.png) |
+
+| Gauges: Classic barometer | Gauges: Modern dials (light) | Gauges: How to read |
+|---|---|---|
+| ![Classic](docs/screenshots/gauges-classic.png) | ![Dials](docs/screenshots/gauges-light.png) | ![Help](docs/screenshots/gauges-help.png) |
 
 The optional parts (MinuteCast, Health, lightning and so on) appear only when their key
 allows them. Without any keys the panel looks like the last picture and still works fully.

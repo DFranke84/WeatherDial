@@ -406,8 +406,12 @@ def src_tempest(cfg, keys, clock):
                 f"?time_start={start}&time_end={int(time.time())}&token={urllib.parse.quote(tok)}")
         wind_max = wind_from_obs(h.get("obs") or [], clock)
         temps = temps_from_obs(h.get("obs") or [], clock)
+    # station pressure (mb) through the last day, for the barometer's history needle
+    obs = (h.get("obs") or []) if device else []
+    p_hist = [[ob[0], ob[6]] for ob in obs if len(ob) > 6 and ob[6]]
     return {"daily": daily, "hourly": hourly, "now": now,
-            "extra": {"station_id": sid, "device_id": device, "wind_max": wind_max, "temps": temps}}
+            "extra": {"station_id": sid, "device_id": device, "wind_max": wind_max, "temps": temps,
+                      "p_hist": p_hist}}
 
 
 def wind_from_obs(obs, clock):
@@ -567,16 +571,20 @@ def src_weather_display(cfg, keys, clock):
     feels = temp
     if temp is not None and wind is not None and temp <= 50 and wind > 3:
         feels = 35.74 + .6215 * temp - 35.75 * wind ** .16 + .4275 * temp * wind ** .16
-    # Pressure trend from our own log of the last 3 hours.
+    # Pressure log (last 26 hours, a point every 5 minutes) for the trend and the gauges.
     plog = load_json(DATA / "pressure_log.json", [])
     now_t = time.time()
     if f("baromin") is not None:
-        plog = [p for p in plog if now_t - p[0] < 3 * 3600 + 600] + [[now_t, f("baromin")]]
+        plog = [p for p in plog if now_t - p[0] < 26 * 3600]
+        if len(plog) >= 2 and now_t - plog[-2][0] < 300:
+            plog[-1] = [now_t, f("baromin")]          # keep the newest value, a point per 5 min
+        else:
+            plog.append([now_t, f("baromin")])
         save_json(DATA / "pressure_log.json", plog)
     trend = None
     old = [p for p in plog if now_t - p[0] >= 2.5 * 3600]
     if old:
-        diff = plog[-1][1] - old[0][1]
+        diff = plog[-1][1] - old[-1][1]               # change over about the last 3 hours
         trend = "rising" if diff > .03 else "falling" if diff < -.03 else "steady"
     wx = WD_WEATHER.get(q.get("weather") or "")
     return {"now": {"station": "Your Tempest (live)", "time": clock.from_epoch(when.timestamp()).isoformat(),
@@ -867,6 +875,44 @@ def consensus(forecasts, field_days):
     return out
 
 
+def gauge_data(now, tem_extra, today):
+    """Data for the Gauges tab: sea-level pressure over the last day (inHg), the pressure
+    3 and 24 hours ago, and today's low/high so far."""
+    t = time.time()
+    hist = []
+    p_now = now.get("pressure")
+    tp = tem_extra.get("p_hist") or []
+    if tp and p_now:
+        # Tempest history is station pressure; shift it to sea level using the live reading.
+        offset = float(p_now) - tp[-1][1] * 0.0295300
+        hist = [[e, round(mb * 0.0295300 + offset, 3)] for e, mb in tp if t - e <= 26 * 3600]
+    own = [p for p in load_json(DATA / "pressure_log.json", []) if t - p[0] <= 26 * 3600]
+    if hist:
+        hist += [p for p in own if p[0] > hist[-1][0]]
+    else:
+        hist = own
+
+    def at(ago):
+        older = [p for p in hist if t - p[0] >= ago]
+        return older[-1][1] if older and t - older[-1][0] <= ago + 1800 else None
+
+    sampled, last = [], 0
+    for e, v in hist:
+        if e - last >= 900:           # a point every 15 minutes is plenty for a graph
+            sampled.append([int(e), v]); last = e
+    day = (tem_extra.get("temps") or {}).get(today)
+    if not day:
+        own_day = load_json(DATA / "wind_max.json", {}).get("today") or {}
+        if own_day.get("date") == today and own_day.get("t_hi") is not None:
+            day = {"hi": own_day["t_hi"], "lo": own_day["t_lo"]}
+    p3 = at(3 * 3600)
+    if p_now and p3 is not None:   # trend from the full history (also right after a restart)
+        diff = float(p_now) - p3
+        now["trend"] = "rising" if diff > .03 else "falling" if diff < -.03 else "steady"
+    return {"p_hist": sampled, "p_3h": p3, "p_24h": at(24 * 3600),
+            "t_today": {"hi": day["hi"], "lo": day["lo"]} if day else None}
+
+
 def track_wind(now, today, now_local, history=None):
     """Keep today's (and yesterday's) highest wind and gust seen in the 'now' readings,
     and add them to `now` as wind_max (for the Wind tooltip). history = full-day maxima
@@ -1035,6 +1081,8 @@ def fetch(force=False):
     if readings:
         track_wind(readings[0], today, now_local, tem.get("extra", {}).get("wind_max"))
 
+    gauges = gauge_data(readings[0] if readings else {}, tem.get("extra", {}), today)
+
     # Accuracy: remember every source's forecasts; record finished days' actual high/low.
     record_forecasts(fc_daily, today)
     record_actuals({d: {"hi": t["hi"], "lo": t["lo"], "how": "Tempest cloud"}
@@ -1072,6 +1120,7 @@ def fetch(force=False):
         "minutecast": minutecast,
         "indices": indices,
         "verify": verify_table(today),
+        "gauges": gauges,
         "sources": status,
     }
     save_json(DATA / "latest.json", out)
