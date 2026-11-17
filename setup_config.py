@@ -155,8 +155,9 @@ def main():
                            ("accuweather", "AccuWeather (free trial, then paid)", "developer.accuweather.com")]:
         keys[k] = ask(f"{name}  ({where})", keys.get(k, ""))
 
-    cfg.setdefault("refresh_minutes", 10)
-    CFG.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+    sys.path.insert(0, str(HERE))
+    import weather   # writes every setting (yours or the default) plus a _help section
+    CFG.write_text(weather.config_text(cfg), encoding="utf-8")
     KEYS.write_text(json.dumps(keys, indent=2) + "\n", encoding="utf-8")
     print("\n  Saved config.json and keys.json (they stay on this PC).")
     print("  To change them later: run Install.bat again, or right-click the panel.")

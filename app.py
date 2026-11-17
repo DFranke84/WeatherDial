@@ -443,6 +443,12 @@ if __name__ == "__main__":
     except OSError:
         note("Not started: WeatherDial is already running.")
         sys.exit(0)
+    added = weather.complete_config(HERE / "config.json")   # show every setting in config.json
+    if added:
+        note("config.json: added settings with their defaults:", ", ".join(added))
+    added = weather.complete_keys(HERE / "keys.json")        # and every key name in keys.json
+    if added:
+        note("keys.json: added empty entries for:", ", ".join(added))
     cfg = weather.load_json(HERE / "config.json", {}) or {}
     if not cfg.get("weather_display_dir") and cfg.get("tempest_udp", True):
         threading.Thread(target=tempest_listener, args=(int(cfg.get("tempest_udp_port", 50222)),),

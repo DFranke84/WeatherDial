@@ -810,6 +810,79 @@ INDEX_GROUPS = {
 }
 
 
+# ---------------------------------------------------------------- settings (config.json)
+# Every setting, its default and what it does. config.example.json is written from this, and
+# any setting missing from your config.json is added with its default when WeatherDial starts
+# (your own values are never changed).
+CONFIG_SETTINGS = [
+    ("name", "Home", "The name shown at the top left of the panel."),
+    ("lat", 0.0, "Your latitude in decimal degrees (north is positive)."),
+    ("lon", 0.0, "Your longitude in decimal degrees (west is negative, e.g. -105.0)."),
+    ("refresh_minutes", 10, "How often the no-key sources (NWS, Open-Meteo) refresh, in minutes (at least 2)."),
+    ("tempest_udp", True, "true = listen to a Tempest hub on the home network for live readings; false = don't. "
+                          "Restart WeatherDial after changing."),
+    ("tempest_udp_port", 50222, "The network port the Tempest hub broadcasts on (normally 50222)."),
+    ("tempest_station_id", None, "Which Tempest station to use (setup fills this in from your token). "
+                                 "null = the first station on the token."),
+    ("weather_display_dir", "", "Only if Weather Display runs your station: its folder, e.g. "
+                                "\"C:\\wdisplay\" (write each \\ twice in this file). Then live readings come "
+                                "from its file instead of the hub. Leave empty otherwise."),
+    ("source_minutes", {}, "Refresh a particular source more or less often, in minutes, e.g. "
+                           "{\"AccuWeather\": 10}. Use the names from the Sources tab; at least 2. "
+                           "Check that source's daily limit first."),
+    ("accuracy_backfill_days", 30, "How many past days to fill in for the accuracy scores (global models' "
+                                   "past forecasts and your Tempest's actual highs and lows)."),
+    ("index_groups", INDEX_GROUPS, "Which AccuWeather health & lifestyle indices the Health tab shows, by "
+                                   "number, in groups. List all numbers: python weather.py --indices"),
+]
+
+
+def config_text(cfg):
+    """config.json as text: every setting (yours or the default), then a _help section."""
+    out = {k: cfg.get(k, default) for k, default, _ in CONFIG_SETTINGS}
+    out.update({k: v for k, v in cfg.items() if k not in out and not k.startswith("_")})   # keep extras
+    out["_help"] = {k: text for k, _, text in CONFIG_SETTINGS}
+    text = json.dumps(out, indent=2, ensure_ascii=False)
+    # keep lists of numbers on one line ([21, 30, 27, ...]) so the file stays readable
+    import re
+    return re.sub(r"\[\s*([-\d,\s]+?)\s*\]", lambda m: "[" + ", ".join(m.group(1).split()).replace(",,", ",") + "]",
+                  text) + "\n"
+
+
+KEY_NAMES = ["tempest_token", "pirateweather", "weatherapi", "visualcrossing", "tomorrowio",
+             "weathercom", "accuweather"]
+
+
+def complete_keys(path):
+    """Add any missing key names (empty) to keys.json, keeping the keys already there."""
+    keys = load_json(path)
+    if not isinstance(keys, dict):
+        return []
+    added = [k for k in KEY_NAMES if k not in keys]
+    if added:
+        keys.setdefault("_help", "Paste each key between the quotes. Leave blank to skip that source. "
+                                 "This file stays on this PC only. Where to get each key: README, Sources.")
+        keys.update({k: "" for k in added})
+        Path(path).write_text(json.dumps(keys, indent=2) + "\n", encoding="utf-8")
+    return added
+
+
+def complete_config(path):
+    """Add any missing settings (with defaults) and the _help text to an existing config.json,
+    keeping the user's values. Returns the names that were added."""
+    cfg = load_json(path)
+    if not isinstance(cfg, dict):
+        return []
+    added = [k for k, _, _ in CONFIG_SETTINGS if k not in cfg]
+    new = config_text(cfg)
+    try:
+        if Path(path).read_text(encoding="utf-8") != new:
+            Path(path).write_text(new, encoding="utf-8")
+    except OSError:
+        return []
+    return added
+
+
 def src_indices(cfg, keys, clock):
     """AccuWeather health & lifestyle indices, 5 days, one call."""
     call, memo = accu_session(cfg, keys)

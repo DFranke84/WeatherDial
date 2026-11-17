@@ -161,9 +161,15 @@ Run `Install.bat` again any time to change your answers (press Enter to keep eac
 | `accuracy_backfill_days` | Optional, default 30. How many past days to fill in for the accuracy scores when you first start (the global models' past forecasts from Open-Meteo, and your Tempest's actual highs and lows). |
 | `source_minutes` | Optional. How often a particular source refreshes, overriding the pace in the table below, e.g. `{"AccuWeather": 10}`. Use the name shown in the Sources tab; the minimum is 2. Check that source's daily limit first. AccuWeather, for example, uses 2 requests per refresh, so every 10 minutes is about 288 a day. |
 
-Setup writes this file for you. To change it, run `Install.bat` again, or right-click the
-panel → **Edit location…** to open it in Notepad. Changes to location and keys are used from the
-next refresh; changes to the Tempest settings after restarting WeatherDial.
+Setup writes this file for you with **every setting listed** (the defaults for the ones it
+didn't ask about) and a `_help` section at the bottom that explains each one. If a newer
+version of WeatherDial adds a setting, it's added to your file with its default the next time
+WeatherDial starts; your own values are never changed. The same goes for new key names in
+`keys.json`.
+
+To change settings, run `Install.bat` again, or right-click the panel → **Edit location…** to
+open the file in Notepad. Changes to location and keys are used from the next refresh; changes
+to the Tempest settings after restarting WeatherDial.
 
 ## Using it
 
