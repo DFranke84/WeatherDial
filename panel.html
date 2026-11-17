@@ -911,7 +911,9 @@ function renderGauges() {
   } else {
     const p = n.pressure ? +n.pressure : null, ch3 = p != null && g.p_3h != null ? p - g.p_3h : null;
     const tlo = Math.min(0, Math.floor(((g.t_today?.lo ?? n.temp ?? 30) - 10) / 10) * 10), thi = Math.max(tlo + 60, Math.ceil(((g.t_today?.hi ?? n.temp ?? 60) + 10) / 10) * 10);
-    body = `<div class="dials">
+    // two rows of dials sized to the tab, like the other styles (each dial is 200 x 205)
+    const cell = Math.max(140, Math.min(innerW() / 2 - 3, (tabH - 50) / 2 * 200 / 205));
+    body = `<div class="dials" style="max-width:${Math.round(cell * 2 + 6)}px;margin:0 auto">
       ${arcDial({ title: "Temperature", value: n.temp, min: tlo, max: thi, fmt: v => Math.round(v) + "°", unit: "°F", color: tempColor(n.temp),
         marks: g.t_today ? [{ v: g.t_today.lo, c: "#2a74c9", t: `Today's low ${f0(g.t_today.lo)}°F` }, { v: g.t_today.hi, c: "#d9443a", t: `Today's high ${f0(g.t_today.hi)}°F` }] : [],
         sub: `feels ${f0(n.feels)}°${g.t_today ? ` · today ${f0(g.t_today.lo)}–${f0(g.t_today.hi)}°` : ""}`, tip: `Temperature ${f0(n.temp)}°F, feels like ${f0(n.feels)}°F` })}
