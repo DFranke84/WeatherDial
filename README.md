@@ -118,7 +118,7 @@ next refresh.
 - **Right-click** the panel for its menu: Lock position, Compact / Full size, Small / Medium /
   Large, Refresh now, Edit API keys…, Edit location…, Close WeatherDial.
 - **The tray icon** (a sun and cloud) has the same options, plus **Start with Windows**.
-- **Updates:** your station is re-read every 30 seconds. **Refresh now** won't download the
+- **Updates:** your station is re-read and the panel redrawn every 15 seconds (scrolled tabs keep their place, and the chart doesn't redraw while you hover over it). **Refresh now** won't download the
   same source more than once every 2 minutes.
 
 ## Sources
@@ -132,7 +132,7 @@ forecast in the average.
 | National Weather Service (api.weather.gov) | none | Official 7-day and hourly forecast, alerts, nearest station's readings, forecast discussion | `refresh_minutes` |
 | Open-Meteo | none | NOAA GFS, ECMWF, DWD ICON, Canada GEM and UK Met Office models (up to 16 days), air quality, UV, sun times | `refresh_minutes`; models hourly, air quality every 30 min |
 | RainViewer + Esri map | none | Radar | when you open the Radar tab |
-| Weather Display (on this PC) | none | Your Tempest live: read from Weather Display's `sentwurapiddata.txt` | every 30 s |
+| Weather Display (on this PC) | none | Your Tempest live: read from Weather Display's `sentwurapiddata.txt` | every 15 s |
 | Tempest cloud | `tempest_token`: tempestwx.com → Settings → Data Authorizations → Create Token | Lightning, yesterday's rain, Tempest's own 10-day and hourly forecast | every 5 min |
 | Weather.com | `weathercom`: free for Weather Underground station owners, at wunderground.com/member/api-keys | weather.com's 5-day forecast (this key doesn't include hourly or 7/10-day) | every 30 min |
 | AccuWeather | `accuweather`: developer.accuweather.com (free trial, then paid plans) | 15-day and up to 120-hour forecast, depending on your plan (it checks once a day what the plan allows, so an upgrade is picked up automatically) | every 60 min (2 requests each, ~48 a day). The trial allows 500 a day and paid plans more, so set `source_minutes` to refresh it faster. |
@@ -187,7 +187,7 @@ update less often.
 
 | Part | WeatherDial checks | The data itself |
 |---|---|---|
-| **Now** from your Tempest (via Weather Display) | every 30 s; the panel redraws every 60 s | written every 3 s, so 0 to about 90 s old on screen |
+| **Now** from your Tempest (via Weather Display) | every 15 s, and the panel redraws every 15 s | written every 3 s, so 0 to about 30 s old on screen |
 | Lightning, yesterday's rain, today's max wind (Tempest cloud) | every 5 min | minute by minute |
 | Nearest airport reading (NWS) | `refresh_minutes` | about once an hour |
 | NWS warnings | `refresh_minutes` | as soon as they're issued |

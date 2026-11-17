@@ -344,7 +344,8 @@ function renderHealth() {
   $("t-health").innerHTML = h;
 }
 
-function renderHourly() {
+function renderHourly(force) {
+  if (!force && $("tip").style.display === "block") return;   // don't redraw under your mouse
   const H = D.hourly.slice(0, hourSpan), W = innerW(), top = 30, ch = 120, pb = 40, bot = top + ch + pb + 34;
   const temps = H.flatMap(h => [h.temp, ...Object.values(h.by || {})]).filter(v => v != null);
   const tmin = Math.floor(Math.min(...temps) - 2), tmax = Math.ceil(Math.max(...temps) + 2);
@@ -646,8 +647,10 @@ async function load(force) {
       if (D.now) ["strikes_3h", "strike_dist", "strike_time", "rain_yesterday"].forEach(k => delete D.now[k]);
     }
     const openDays = [...document.querySelectorAll(".detail.open")].map(x => x.id);
+    const scrolls = [...document.querySelectorAll(".tab")].map(t => t.scrollTop);   // keep your place
     render();
     openDays.forEach(id => $(id)?.classList.add("open"));
+    document.querySelectorAll(".tab").forEach((t, i) => t.scrollTop = scrolls[i]);
   } catch (e) { $("upd").textContent = "can't load data: " + e.message; }
 }
 load().then(() => {   // ?tab=daily / ?compact: open that way (used for screenshots)
@@ -665,7 +668,7 @@ load().then(() => {   // ?tab=daily / ?compact: open that way (used for screensh
   }
   if (Q.has("menu")) { menu.hidden = false; menu.style.left = "300px"; menu.style.top = "70px"; }
 });
-setInterval(load, 60 * 1000);
+setInterval(load, 15 * 1000);   // the app re-reads your station every 15 s too
 </script>
 </body>
 </html>

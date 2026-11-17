@@ -27,7 +27,7 @@ PORT = 8791
 HERE = Path(__file__).resolve().parent
 POSITIONS_FILE = HERE / "positions.json"   # written by the app: where the panel sits
 LATEST = weather.DATA / "latest.json"
-REFRESH_S = 30          # how often to re-read your station; other sources keep their own pace
+REFRESH_S = 15          # how often to re-read your station; other sources keep their own pace
 APP = None              # the running Api (set in run_window)
 fetch_lock = threading.Lock()
 
