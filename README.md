@@ -46,6 +46,10 @@ live readings on top.
 |---|---|
 | ![Compact](docs/screenshots/compact.png) | ![No extras](docs/screenshots/no-extras.png) |
 
+| Light theme, made wider |
+|---|
+| ![Light and wide](docs/screenshots/light-wide.png) |
+
 The optional parts (MinuteCast, Health, lightning and so on) appear only when their key
 allows them. Without any keys the panel looks like the last picture and still works fully.
 
@@ -105,6 +109,12 @@ next refresh.
 - **Move:** drag the top bar or the current-conditions area.
 - **Taller or shorter:** drag the small handle on the bottom edge. Double-click it to fit the
   tab you're looking at exactly. The height is remembered and never goes past the screen.
+- **Wider or narrower:** drag the right edge (a handle appears when the mouse is over the
+  panel). The hourly chart, radar map, 16-Day bars and tables stretch to fit, and the chart
+  shows more hour labels when there's room. Double-click the handle for the normal width.
+- **Light or dark:** right-click → **Theme: Dark / Light / Match Windows**. "Match Windows"
+  follows Windows' own light/dark setting and changes with it. The radar map has a light
+  and a dark version too.
 - **Right-click** the panel for its menu: Lock position, Compact / Full size, Small / Medium /
   Large, Refresh now, Edit API keys…, Edit location…, Close WeatherDial.
 - **The tray icon** (a sun and cloud) has the same options, plus **Start with Windows**.
@@ -169,6 +179,31 @@ Underground. Weather Display can do that upload for you.
 - **Spread (highs):** the warmest minus the coldest high for that day.
 - **Hourly line:** the NWS hourly forecast where it has one (about 6 days), then Open-Meteo's
   blend. The shaded band is the range of all sources for that hour.
+
+## How fresh is each part?
+
+With the default settings. "Checks" is how often WeatherDial asks; the source itself may
+update less often.
+
+| Part | WeatherDial checks | The data itself |
+|---|---|---|
+| **Now** from your Tempest (via Weather Display) | every 30 s; the panel redraws every 60 s | written every 3 s, so 0 to about 90 s old on screen |
+| Lightning, yesterday's rain, today's max wind (Tempest cloud) | every 5 min | minute by minute |
+| Nearest airport reading (NWS) | `refresh_minutes` | about once an hour |
+| NWS warnings | `refresh_minutes` | as soon as they're issued |
+| NWS forecast and hourly forecast | `refresh_minutes` | a few times a day |
+| Forecaster discussion | `refresh_minutes` | 2 to 4 times a day |
+| Global models (GFS, ECMWF, ICON, GEM, UK) | every 60 min | every 6 to 12 hours |
+| Open-Meteo blend (hourly detail, sun times) | `refresh_minutes` | hourly |
+| Air quality | every 30 min | hourly |
+| AccuWeather forecast | 60 min (or `source_minutes`) | hourly |
+| AccuWeather MinuteCast | every 30 min; hidden when over 45 min old | minute by minute |
+| AccuWeather Health | every 6 hours | daily |
+| Weather.com, Pirate Weather, WeatherAPI, Tomorrow.io | every 30 min | hourly or so |
+| Visual Crossing | every 60 min | hourly or so |
+| Radar | when the Radar tab opens, then every 10 min while it's showing | a new frame every 10 min |
+
+The **Sources** tab shows how long ago each source was last downloaded.
 
 ## Troubleshooting
 
