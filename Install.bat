@@ -1,6 +1,7 @@
 @echo off
-rem WeatherDial installer: installs what's missing (Python, pywebview), creates your
-rem config.json and keys.json, then starts the panel.  "Install.bat check" only reports.
+rem WeatherDial installer: installs what's missing (Python, pywebview), asks for your
+rem location, Tempest token and optional keys (setup_config.py), then starts the panel.
+rem Run it again any time to change those settings.  "Install.bat check" only reports.
 setlocal
 cd /d "%~dp0"
 set CHECK=
@@ -40,20 +41,19 @@ if not errorlevel 1 (
 )
 
 rem ---------------------------------------------------------------- your settings
-if exist config.json (echo  [OK]  config.json ^(your location^)) else if defined CHECK (
-    echo  [--]  config.json: not created yet
-) else (
-    copy /y config.example.json config.json >nul
-    echo  [OK]  config.json created: put in your latitude and longitude ^(opening it now^)
-    start "" notepad.exe config.json
+if defined CHECK (
+    if exist config.json (echo  [OK]  config.json ^(your location and station^)) else (echo  [--]  config.json: not set up yet)
+    if exist keys.json (echo  [OK]  keys.json ^(optional keys^)) else (echo  [--]  keys.json: not set up yet)
+    goto :end
 )
-if exist keys.json (echo  [OK]  keys.json ^(API keys^)) else if defined CHECK (
-    echo  [--]  keys.json: not created yet
+if not exist config.json (
+    "%PY%" setup_config.py
+    if errorlevel 1 goto :end
 ) else (
-    copy /y keys.example.json keys.json >nul
-    echo  [OK]  keys.json created: optional free keys, see README
+    echo  [OK]  Settings found ^(config.json, keys.json^).
+    choice /c YN /n /t 20 /d N /m "       Change them now? [Y/N] (N in 20 s) "
+    if not errorlevel 2 "%PY%" setup_config.py
 )
-if defined CHECK goto :end
 
 echo.
 echo  Starting WeatherDial...

@@ -595,7 +595,7 @@ function renderCompare() {
 
 function renderAfd() {
   const a = D.discussion;
-  $("t-afd").innerHTML = a ? `<div style="color:var(--dim);margin-bottom:6px">Written by the NWS forecasters in ${a.office === "MSO" ? "Missoula" : a.office}, issued ${new Date(a.issued).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}</div>
+  $("t-afd").innerHTML = a ? `<div style="color:var(--dim);margin-bottom:6px">Written by the forecasters at the National Weather Service in ${esc((a.text.match(/National Weather Service ([^\n]+)/) || [])[1]?.trim() || a.office)}, issued ${new Date(a.issued).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}</div>
     <pre class="afd">${esc(a.text.replace(/^[\s\S]*?(\.(DISCUSSION|SYNOPSIS|KEY MESSAGES))/m, "$1").replace(/&&\s*$/m, ""))}</pre>` : "Not available.";
 }
 

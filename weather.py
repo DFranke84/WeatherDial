@@ -559,44 +559,122 @@ WD_WEATHER = {"RA": "Rain", "-RA": "Light rain", "+RA": "Heavy rain", "SN": "Sno
               "+SN": "Heavy snow", "DZ": "Drizzle", "FG": "Fog", "TS": "Thunderstorm", "SH": "Showers"}
 
 
-def src_weather_display(cfg, keys, clock):
-    """Your Tempest, read live from Weather Display's Weather Underground upload file
-    (written every few seconds, no network needed)."""
+UDP_FILE = DATA / "tempest_udp.json"     # written by app.py's listener for the Tempest hub
+
+
+def read_weather_display(cfg):
+    """Weather Display's Weather Underground upload file (rewritten every few seconds)."""
     path = Path(cfg["weather_display_dir"]) / "sentwurapiddata.txt"
-    line = path.read_text(encoding="utf-8", errors="replace").splitlines()[0]
+    try:
+        line = path.read_text(encoding="utf-8", errors="replace").splitlines()[0]
+    except OSError:
+        return None, f"can't read {path}"
     q = {k: v[0] for k, v in urllib.parse.parse_qs(line.split("?", 1)[1]).items()}
-    when = dt.datetime.strptime(q["dateutc"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
-    age = (dt.datetime.now(UTC) - when).total_seconds()
-    if age > 600:
-        raise RuntimeError(f"Weather Display data is {round(age / 60)} min old")
+    when = dt.datetime.strptime(q["dateutc"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC).timestamp()
     f = lambda k: float(q[k]) if q.get(k) not in (None, "") else None
-    temp, rh, wind = f("tempf"), f("humidity"), f("windspeedmph")
-    feels = temp
-    if temp is not None and wind is not None and temp <= 50 and wind > 3:
-        feels = 35.74 + .6215 * temp - 35.75 * wind ** .16 + .4275 * temp * wind ** .16
+    wx = WD_WEATHER.get(q.get("weather") or "")
+    return {"when": when, "temp": f("tempf"), "rh": f("humidity"), "dew": f("dewptf"),
+            "wind": f("windspeedmph"), "gust": f("windgustmph"), "dir": f("winddir"),
+            "pressure": f("baromin"), "uv": f("UV"), "solar": f("solarradiation"),
+            "rain_rate": f("rainin"), "rain_today": f("dailyrainin"), "text": wx}, None
+
+
+def read_tempest_udp(cfg):
+    """The Tempest hub's own local broadcast, as saved by app.py's listener: an observation
+    every minute, wind every 3 seconds, and lightning strikes."""
+    u = load_json(UDP_FILE)
+    if not u:
+        return None, "no broadcast heard from a Tempest hub yet"
+    if u.get("error"):
+        return None, u["error"]
+    ob = u.get("obs")
+    if not ob:
+        return None, "hub heard, waiting for the first full reading (up to 1 minute)"
+    c = lambda i: ob[i] if len(ob) > i else None
+    t_c, rh, p_mb = c(7), c(8), c(6)
+    temp = t_c * 9 / 5 + 32 if t_c is not None else None
+    dew = None
+    if t_c is not None and rh:                       # Magnus formula
+        g = math.log(rh / 100) + 17.62 * t_c / (243.12 + t_c)
+        dew = (243.12 * g / (17.62 - g)) * 9 / 5 + 32
+    pressure = None
+    if p_mb and t_c is not None:                     # station pressure -> sea level
+        elev = (load_json(CACHE / "src_openmeteo.json") or {}).get("data", {}).get("extra", {}).get("elevation_m") or 0
+        slp = p_mb * (1 - 0.0065 * elev / (t_c + 0.0065 * elev + 273.15)) ** -5.257
+        pressure = round(slp * 0.0295300, 3)
+    mps = 2.23694
+    wind, when = (c(2) or 0) * mps, c(0)
+    rw = u.get("wind")                               # rapid wind: fresher direction/speed
+    direction = rw[2] if rw and time.time() - rw[0] < 60 else c(4)
+    rain_mm = c(12) or 0
+    ptype = c(13) or 0
+    text = ("Hail" if ptype == 2 else "Rain") if rain_mm > 0 else None
+    out = {"when": max(when or 0, rw[0] if rw else 0), "temp": temp, "rh": rh, "dew": dew, "wind": wind,
+           "gust": (c(3) or 0) * mps, "dir": direction, "pressure": pressure, "uv": c(10), "solar": c(11),
+           "rain_rate": rain_mm / 25.4 * 60, "rain_today": (u.get("rain_day") or {}).get("mm", 0) / 25.4,
+           "text": text, "battery": c(16)}
+    strikes = [s for s in u.get("strikes") or [] if time.time() - s[0] < 3 * 3600]
+    if u.get("strikes"):
+        last = u["strikes"][-1]
+        out.update(strikes_3h=len(strikes), strike_dist=round(last[1] * 0.621), strike_time=last[0])
+    return out, None
+
+
+def feels_like(temp, rh, wind):
+    """Wind chill when cold and windy, heat index when hot, else the temperature."""
+    if temp is None:
+        return None
+    if temp <= 50 and (wind or 0) > 3:
+        return 35.74 + .6215 * temp - 35.75 * wind ** .16 + .4275 * temp * wind ** .16
+    if temp >= 80 and rh:
+        return (-42.379 + 2.04901523 * temp + 10.14333127 * rh - .22475541 * temp * rh - .00683783 * temp * temp
+                - .05481717 * rh * rh + .00122874 * temp * temp * rh + .00085282 * temp * rh * rh
+                - .00000199 * temp * temp * rh * rh)
+    return temp
+
+
+def src_local_station(cfg, keys, clock):
+    """Your station, live and local: Weather Display's file if weather_display_dir is set,
+    otherwise the Tempest hub's broadcast on your home network."""
+    if cfg.get("weather_display_dir"):
+        r, why = read_weather_display(cfg)
+        via = "Weather Display"
+    elif cfg.get("tempest_udp", True):
+        r, why = read_tempest_udp(cfg)
+        via = "Tempest hub"
+    else:
+        return {"daily": [], "hourly": [], "now": None, "note": None}
+    if r:
+        age = time.time() - r["when"]
+        if age > 600:
+            r, why = None, f"{via}: last reading {round(age / 60)} min ago"
+    if not r:
+        return {"daily": [], "hourly": [], "now": None, "note": why}
     # Pressure log (last 26 hours, a point every 5 minutes) for the trend and the gauges.
     plog = load_json(DATA / "pressure_log.json", [])
     now_t = time.time()
-    if f("baromin") is not None:
+    if r["pressure"] is not None:
         plog = [p for p in plog if now_t - p[0] < 26 * 3600]
         if len(plog) >= 2 and now_t - plog[-2][0] < 300:
-            plog[-1] = [now_t, f("baromin")]          # keep the newest value, a point per 5 min
+            plog[-1] = [now_t, r["pressure"]]          # keep the newest value, a point per 5 min
         else:
-            plog.append([now_t, f("baromin")])
+            plog.append([now_t, r["pressure"]])
         save_json(DATA / "pressure_log.json", plog)
     trend = None
     old = [p for p in plog if now_t - p[0] >= 2.5 * 3600]
     if old:
         diff = plog[-1][1] - old[-1][1]               # change over about the last 3 hours
         trend = "rising" if diff > .03 else "falling" if diff < -.03 else "steady"
-    wx = WD_WEATHER.get(q.get("weather") or "")
-    return {"now": {"station": "Your Tempest (live)", "time": clock.from_epoch(when.timestamp()).isoformat(),
-                    "temp": r1(temp), "feels": r1(feels), "rh": r0(rh), "dew": r1(f("dewptf")),
-                    "wind": r0(wind), "gust": r0(f("windgustmph")), "dir": f("winddir"),
-                    "pressure": f("baromin"), "trend": trend, "uv": f("UV"), "solar": f("solarradiation"),
-                    "rain_rate": f("rainin"), "rain_today": f("dailyrainin"),
-                    "text": wx, "icon": text_icon(wx) if wx else None, "age_s": round(age)},
-            "daily": [], "hourly": []}
+    now = {"station": "Your Tempest (live)", "via": via, "time": clock.from_epoch(r["when"]).isoformat(),
+           "temp": r1(r["temp"]), "feels": r1(feels_like(r["temp"], r["rh"], r["wind"])), "rh": r0(r["rh"]),
+           "dew": r1(r["dew"]), "wind": r0(r["wind"]), "gust": r0(r["gust"]), "dir": r["dir"],
+           "pressure": r["pressure"], "trend": trend, "uv": r["uv"], "solar": r["solar"],
+           "rain_rate": r["rain_rate"], "rain_today": r["rain_today"],
+           "text": r["text"], "icon": text_icon(r["text"]) if r["text"] else None, "age_s": round(age)}
+    for k in ("strikes_3h", "strike_dist", "strike_time", "battery"):
+        if r.get(k) is not None:
+            now[k] = r[k]
+    return {"now": now, "daily": [], "hourly": []}
 
 
 def src_weathercom(cfg, keys, clock):
@@ -828,7 +906,7 @@ SOURCES = [
     ("models", src_openmeteo_models, None, 60, None),
     ("Air quality", src_air, None, 30, None),
     ("Accuracy history", src_backfill, None, 360, None),
-    ("Tempest (live, local)", src_weather_display, None, 0, None),
+    ("Tempest (live, local)", src_local_station, None, 0, None),
     ("Your Tempest", src_tempest, "tempest_token", 5, "https://tempestwx.com/settings/tokens"),
     ("Weather.com", src_weathercom, "weathercom", 30, "https://www.wunderground.com/member/api-keys"),
     ("AccuWeather", src_accuweather, "accuweather", 60, "https://developer.accuweather.com/"),
@@ -1076,8 +1154,15 @@ def fetch(force=False):
             fc_hourly[name] = data["hourly"]
     if "models" in status and results.get("models"):
         status.pop("models")
-    if "Tempest (live, local)" in status and not cfg.get("weather_display_dir"):
-        status.pop("Tempest (live, local)")
+    local = results.get("Tempest (live, local)") or {}
+    if local.get("now"):
+        status["Tempest (live, local)"]["via"] = local["now"]["via"]
+    elif local.get("note"):   # set up but nothing heard: say why in the Sources tab
+        status["Tempest (live, local)"] = {"state": "error", "keyed": False, "error": local["note"] + (
+            ". If Windows asked about Python and the firewall, allow it on private networks; the PC must be on "
+            "the same home network as the Tempest hub." if "heard" in local["note"] else "")}
+    else:
+        status.pop("Tempest (live, local)", None)
 
     now_local = clock.from_epoch(time.time())
     today = clock.day(now_local)
@@ -1109,9 +1194,17 @@ def fetch(force=False):
     wd = results.get("Tempest (live, local)") or {}
     if wd.get("now") and tem.get("now"):    # live local values + cloud-only extras (lightning)
         for k in ("strikes_3h", "strike_dist", "strike_time", "rain_yesterday"):
-            wd["now"].setdefault(k, tem["now"].get(k))
+            if tem["now"].get(k) is not None:
+                wd["now"][k] = tem["now"][k] if k == "rain_yesterday" else wd["now"].get(k, tem["now"][k])
+        # The hub's own rain total only counts while WeatherDial runs; the cloud's covers the whole day.
+        if wd["now"].get("via") == "Tempest hub" and tem["now"].get("rain_today") is not None:
+            wd["now"]["rain_today"] = max(wd["now"]["rain_today"] or 0, tem["now"]["rain_today"])
     readings = [r for r in (wd.get("now"), tem.get("now") if not wd.get("now") else None, nws.get("now"), dict(om.get("now") or {}, station="Open-Meteo model"))
                 if r and r.get("temp") is not None]
+    if readings and not readings[0].get("text"):   # a station only says "rain"; borrow the sky from others
+        other = next((r for r in readings[1:] if r.get("text")), None)
+        if other:
+            readings[0]["text"], readings[0]["icon"] = other["text"], other.get("icon")
     sun = {d["date"]: d for d in om.get("daily", [])}
     if readings:
         track_wind(readings[0], today, now_local, tem.get("extra", {}).get("wind_max"))

@@ -4,6 +4,9 @@ One see-through weather panel for the Windows desktop. It pulls the forecast for
 spot from up to 15 sources, shows how far they agree, and puts your own weather station's
 live readings on top.
 
+Made for the US (the National Weather Service supplies warnings, the official forecast and the
+forecasters' discussion). Elsewhere everything else still works.
+
 ![Hourly](docs/screenshots/hourly.png)
 
 ## What it shows
@@ -107,20 +110,41 @@ allows them. Without any keys the panel looks like the last picture and still wo
 
 ## How it behaves
 
-Like PCDials: drag it anywhere, on any monitor. It sits behind your other windows, never takes
+Drag it anywhere, on any monitor. It sits behind your other windows, never takes
 focus (safe while gaming), and has no taskbar button, just a tray icon. It remembers its spot,
 size and tab, hides while its monitor is off, and comes back when the monitor is on again.
 
 ## Install
 
-1. Double-click **`Install.bat`**. It installs Python and pywebview if they're missing,
-   creates `config.json` and `keys.json`, opens `config.json` for you, and starts the panel.
-2. In `config.json`, set your location (see below).
-3. Optional: add free keys for more sources (see **Sources**).
-4. From then on, start it with **`Start.bat`**. Or right-click the tray icon and tick
+1. Download the folder (or unzip it) somewhere permanent, e.g. `C:\WeatherDial`.
+2. Double-click **`Install.bat`**. It installs Python and pywebview if they're missing, then
+   asks a few questions:
+   - **Your location:** in Google Maps, right-click your house, click the numbers at the top
+     of the menu to copy them, and paste. It checks the spot with the National Weather
+     Service and tells you the nearest town.
+   - **Name** to show on the panel (e.g. Home, Cabin).
+   - **Tempest token** (optional, only if you have a Tempest station): tempestwx.com →
+     Settings → Data Authorizations → Create Token. It checks the token and finds your station.
+   - **Tempest hub** on your home network? WeatherDial then listens to it for live readings.
+   - **Extra forecast keys** (all optional; press Enter to skip each one).
+3. The panel starts. **The first time, Windows may ask whether Python may use the network.
+   Tick *Private networks* and click *Allow*.** That lets WeatherDial hear your Tempest hub.
+4. From then on, start it with **`Start.bat`**, or right-click the tray icon and tick
    **Start with Windows**.
 
+Run `Install.bat` again any time to change your answers (press Enter to keep each one).
 `Install.bat check` only reports what's installed and changes nothing.
+
+### If you have a Tempest weather station
+
+- **Live readings (every few seconds):** WeatherDial listens to the Tempest hub on your home
+  network, the same broadcast the Tempest app uses. No internet, no account and no other
+  program needed. The PC just has to be on the same network as the hub.
+- **With the token as well,** you also get lightning, yesterday's rain, today's strongest
+  gust, the last 24 hours for the gauges and graphs, the accuracy scores straight away, and
+  Tempest's own forecast as one more source.
+- **No Weather Underground or Weather Display needed.** If you *do* run Weather Display, it
+  already listens to the hub, so setup offers to read Weather Display's file instead.
 
 ## Settings: `config.json`
 
@@ -129,13 +153,17 @@ size and tab, hides while its monitor is off, and comes back when the monitor is
 | `name` | The name shown top-left, e.g. `Home`. |
 | `lat`, `lon` | Your location in decimal degrees. West longitudes are negative, e.g. `-114.3`. Tip: right-click your house in Google Maps and click the numbers to copy them. |
 | `refresh_minutes` | How often the no-key sources (NWS and Open-Meteo) refresh, at least every 2 minutes. Keyed sources keep their own safe pace (see the table below), so this can't use up a key's daily limit. |
-| `weather_display_dir` | Optional. The Weather Display folder, if Weather Display runs your station (see below). Leave it blank otherwise. |
+| `tempest_udp` | `true` = listen to a Tempest hub on the home network for live readings (set by setup). `false` = don't. |
+| `tempest_station_id` | Your Tempest station (set by setup from your token). |
+| `weather_display_dir` | Optional. The Weather Display folder, only if Weather Display runs your station (see below). |
+| `tempest_udp_port` | Optional, default 50222: the port the Tempest hub broadcasts on. |
 | `index_groups` | Optional. Which AccuWeather indices the Health tab shows, and in which groups, e.g. `{"Health": [21, 30, -14], "Outdoors": [3, 20, 13]}`. Run `python weather.py --indices` to list every index with its number. |
 | `accuracy_backfill_days` | Optional, default 30. How many past days to fill in for the accuracy scores when you first start (the global models' past forecasts from Open-Meteo, and your Tempest's actual highs and lows). |
 | `source_minutes` | Optional. How often a particular source refreshes, overriding the pace in the table below, e.g. `{"AccuWeather": 10}`. Use the name shown in the Sources tab; the minimum is 2. Check that source's daily limit first. AccuWeather, for example, uses 2 requests per refresh, so every 10 minutes is about 288 a day. |
 
-Right-click the panel → **Edit location…** to open the file. Your changes are used from the
-next refresh.
+Setup writes this file for you. To change it, run `Install.bat` again, or right-click the
+panel → **Edit location…** to open it in Notepad. Changes to location and keys are used from the
+next refresh; changes to the Tempest settings after restarting WeatherDial.
 
 ## Using it
 
@@ -165,8 +193,9 @@ forecast in the average.
 | National Weather Service (api.weather.gov) | none | Official 7-day and hourly forecast, alerts, nearest station's readings, forecast discussion | `refresh_minutes` |
 | Open-Meteo | none | NOAA GFS, ECMWF, DWD ICON, Canada GEM and UK Met Office models (up to 16 days), air quality, UV, sun times | `refresh_minutes`; models hourly, air quality every 30 min |
 | RainViewer + Esri map | none | Radar | when you open the Radar tab |
-| Weather Display (on this PC) | none | Your Tempest live: read from Weather Display's `sentwurapiddata.txt` | every 15 s |
-| Tempest cloud | `tempest_token`: tempestwx.com → Settings → Data Authorizations → Create Token | Lightning, yesterday's rain, Tempest's own 10-day and hourly forecast | every 5 min |
+| Your Tempest hub (home network) | none | Your station live: temperature, humidity, wind, pressure, rain, UV, lightning | every 15 s (the hub sends every 3 s to 1 min) |
+| Weather Display (instead of the hub) | none | The same, read from Weather Display's `sentwurapiddata.txt` | every 15 s |
+| Tempest cloud | `tempest_token`: tempestwx.com → Settings → Data Authorizations → Create Token | Lightning, yesterday's rain, the last 24 hours, Tempest's own 10-day and hourly forecast. Also the live readings if the hub can't be heard (every 5 min). | every 5 min |
 | Weather.com | `weathercom`: free for Weather Underground station owners, at wunderground.com/member/api-keys | weather.com's 5-day forecast (this key doesn't include hourly or 7/10-day) | every 30 min |
 | AccuWeather | `accuweather`: developer.accuweather.com (free trial, then paid plans) | 15-day and up to 120-hour forecast, depending on your plan (it checks once a day what the plan allows, so an upgrade is picked up automatically) | every 60 min (2 requests each, ~48 a day). The trial allows 500 a day and paid plans more, so set `source_minutes` to refresh it faster. |
 | AccuWeather MinuteCast | same `accuweather` key; in the trial, then a paid add-on | Rain or snow minute by minute for the next 2 hours. Hidden if your plan doesn't include it. | every 30 min (~48 a day; the trial allows 50) |
@@ -188,12 +217,11 @@ other failure at the source's normal pace, so a dead key never eats into a daily
 Sources shows when it will try again. MinuteCast and Health disappear by themselves when
 AccuWeather stops allowing them, e.g. after a trial.
 
-**Tempest and Weather Display:** only one program can listen to the Tempest hub's local
-broadcast (UDP port 50222). If Weather Display already does, set `weather_display_dir`.
-WeatherDial then reads the live values from the file Weather Display writes every few
-seconds, with no clash and no firewall prompt. Lightning isn't in that file; the Tempest cloud
-token adds it. The pressure trend (rising, falling or steady) appears after WeatherDial has
-been running for about 2½ hours.
+**Tempest hub and Weather Display:** only one program can listen to the Tempest hub's
+broadcast (UDP port 50222). Normally that's WeatherDial. If Weather Display already does it,
+setup offers to read Weather Display's file instead, with no clash and no firewall prompt.
+Without the Tempest token, the pressure trend and the 24-hour gauges fill in from
+WeatherDial's own readings, so give them a few hours after the first start.
 
 **Weather.com** gives its free key only to people whose weather station uploads to Weather
 Underground. Weather Display can do that upload for you.
@@ -254,7 +282,7 @@ update less often.
 
 | Part | WeatherDial checks | The data itself |
 |---|---|---|
-| **Now** from your Tempest (via Weather Display) | every 15 s, and the panel redraws every 15 s | written every 3 s, so 0 to about 30 s old on screen |
+| **Now** from your Tempest (hub or Weather Display) | every 15 s, and the panel redraws every 15 s | wind every 3 s, the rest every minute |
 | Lightning, yesterday's rain, today's max wind (Tempest cloud) | every 5 min | minute by minute |
 | Nearest airport reading (NWS) | `refresh_minutes` | about once an hour |
 | NWS warnings | `refresh_minutes` | as soon as they're issued |
@@ -278,6 +306,12 @@ The **Sources** tab shows how long ago each source was last downloaded.
 - **Panel not showing:** it sits behind other windows. Minimize them or press Win+D. Look
   for the sun-and-cloud icon in the tray (it may be under the tray's ^ arrow).
 - **A source is red or grey in Sources:** grey means no key; red shows the reason next to it.
+- **"No broadcast heard from a Tempest hub yet"** (Sources tab): Windows' firewall is blocking
+  Python, or the PC isn't on the same network as the hub. Open *Windows Security → Firewall &
+  network protection → Allow an app through firewall*, find **Python** and tick **Private**.
+  Then right-click the tray icon → Close WeatherDial and run `Start.bat`. Until then, "Now"
+  comes from the Tempest cloud (with the token) or the nearest airport.
+- **The location is wrong:** run `Install.bat` again and paste the right numbers.
 - **It closed by itself:** see `weatherdial.log` in the WeatherDial folder.
 - **Starting a second copy** does nothing; only one runs at a time.
 
@@ -289,15 +323,17 @@ The **Sources** tab shows how long ago each source was last downloaded.
 - `panel.html`: the panel itself.
 - `python app.py --server`: a preview in a normal browser at
   http://127.0.0.1:8791/panel.html?preview (only while the panel isn't running).
-- `config.example.json`, `keys.example.json`: templates that `Install.bat` copies.
+- `setup_config.py`: the questions `Install.bat` asks (writes `config.json` and `keys.json`).
+- `config.example.json`, `keys.example.json`: what those two files look like.
 - `data/`: cached downloads (made by the app); `data/verify/` holds the accuracy history.
 - `positions.json`: where the panel sits and its size, tab and settings (made by the app).
 - `weatherdial.log`: messages and errors when it runs without a console.
 
 ## Requirements
 
-Windows 10 or 11, Python 3.13 or newer, and [pywebview](https://pywebview.flowrl.com/).
-`Install.bat` installs both if they're missing.
+Windows 10 or 11, an internet connection, Python 3.13 or newer, and
+[pywebview](https://pywebview.flowrl.com/). `Install.bat` installs Python and pywebview if
+they're missing.
 
 ## License
 

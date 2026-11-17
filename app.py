@@ -52,6 +52,58 @@ def refresh_loop():
         time.sleep(REFRESH_S)
 
 
+def tempest_listener(port=50222):
+    """Listen for the Tempest hub's broadcast on the home network (no internet needed):
+    a full observation every minute, wind every 3 seconds, lightning strikes as they happen.
+    Saves the latest of each, today's rain total and the last 3 hours of strikes to
+    data/tempest_udp.json for weather.py. The first time, Windows may ask whether Python
+    may use the network: allow it on private networks."""
+    import socket
+    out = weather.UDP_FILE
+    state = weather.load_json(out, {}) or {}
+    state.pop("error", None)
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        s.bind(("", port))
+    except OSError as e:
+        note(f"Tempest listener: can't use UDP port {port} ({e}); another program "
+             "(e.g. Weather Display) is probably listening to the hub already")
+        weather.save_json(out, {"error": f"UDP port {port} is in use by another program (e.g. Weather Display); "
+                                         "set weather_display_dir in config.json if that program is Weather Display"})
+        return
+    note(f"Tempest listener: waiting for the hub on UDP port {port}")
+    last_save = 0
+    while True:
+        try:
+            data, _ = s.recvfrom(4096)
+            m = json.loads(data)
+        except (OSError, ValueError):
+            continue
+        kind, now = m.get("type"), time.time()
+        if kind == "obs_st" and m.get("obs"):
+            ob = m["obs"][-1]
+            state["obs"], state["serial"] = ob, m.get("serial_number")
+            day = time.strftime("%Y-%m-%d", time.localtime(ob[0]))
+            rd = state.get("rain_day") or {}
+            if rd.get("date") != day:
+                rd = {"date": day, "mm": 0.0}
+            if rd.get("last") != ob[0]:          # each minute's rain counted once
+                rd["mm"] = round(rd["mm"] + (ob[12] if len(ob) > 12 and ob[12] else 0), 3)
+                rd["last"] = ob[0]
+            state["rain_day"] = rd
+        elif kind == "rapid_wind" and m.get("ob"):
+            state["wind"] = m["ob"]
+        elif kind == "evt_strike" and m.get("evt"):
+            state["strikes"] = [x for x in state.get("strikes") or [] if now - x[0] < 3 * 3600] + [m["evt"]]
+        else:
+            continue
+        state["heard"] = now
+        if now - last_save >= 3 or kind != "rapid_wind":
+            weather.save_json(out, state)
+            last_save = now
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(HERE), **kwargs)
@@ -391,6 +443,10 @@ if __name__ == "__main__":
     except OSError:
         note("Not started: WeatherDial is already running.")
         sys.exit(0)
+    cfg = weather.load_json(HERE / "config.json", {}) or {}
+    if not cfg.get("weather_display_dir") and cfg.get("tempest_udp", True):
+        threading.Thread(target=tempest_listener, args=(int(cfg.get("tempest_udp_port", 50222)),),
+                         daemon=True).start()
     threading.Thread(target=refresh_loop, daemon=True).start()
     if "--server" in sys.argv:
         note(f"Serving http://127.0.0.1:{PORT}/panel.html?preview")
