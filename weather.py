@@ -42,9 +42,9 @@ def save_json(path, obj):
     tmp.replace(path)
 
 
-def get(url, timeout=25):
+def get(url, timeout=25, headers=None):
     req = urllib.request.Request(url, headers={
-        "User-Agent": UA, "Accept": "application/geo+json, application/json"})
+        "User-Agent": UA, "Accept": "application/geo+json, application/json", **(headers or {})})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode("utf-8"))
 
@@ -52,6 +52,10 @@ def get(url, timeout=25):
 def short_error(e):
     """Error text without the URL (URLs may hold API keys)."""
     if isinstance(e, urllib.error.HTTPError):
+        if e.code in (401, 403):
+            return f"key refused (HTTP {e.code}): expired trial or wrong key?"
+        if e.code == 429:
+            return "too many requests today (free limit reached)"
         return f"HTTP {e.code} {e.reason}"
     if isinstance(e, urllib.error.URLError):
         return f"network: {e.reason}"
@@ -454,6 +458,85 @@ def src_weathercom(cfg, keys, clock):
     return {"daily": daily, "hourly": []}
 
 
+def src_accuweather(cfg, keys, clock):
+    """AccuWeather daily + hourly. Finds (once) the location key, how the key must be sent
+    and which forecast lengths the plan allows, and remembers that in data/cache."""
+    key = keys["accuweather"]
+    base = "https://dataservice.accuweather.com"
+    memo_file = CACHE / "accuweather_setup.json"
+    memo = load_json(memo_file, {})
+    if memo.get("key_id") != key[-6:] or memo.get("where") != [cfg["lat"], cfg["lon"]]:
+        memo = {"key_id": key[-6:], "where": [cfg["lat"], cfg["lon"]]}
+
+    def call(path, auth=None):
+        auth = auth or memo.get("auth", "bearer")
+        if auth == "bearer":
+            return get(f"{base}{path}", headers={"Authorization": f"Bearer {key}"})
+        sep = "&" if "?" in path else "?"
+        return get(f"{base}{path}{sep}apikey={urllib.parse.quote(key)}")
+
+    if "location" not in memo:
+        q = f"/locations/v1/cities/geoposition/search?q={cfg['lat']},{cfg['lon']}"
+        for auth in ("bearer", "query"):
+            try:
+                loc = call(q, auth)
+                memo.update(auth=auth, location=loc["Key"], place=loc.get("LocalizedName"))
+                break
+            except urllib.error.HTTPError as e:
+                if e.code not in (401, 403):
+                    raise
+        else:
+            raise RuntimeError("AccuWeather refused the key (expired trial or wrong key?)")
+
+    def first_allowed(kind, options):
+        if memo.get(kind):
+            return memo[kind], call(memo[kind])
+        last = None
+        for path in options:
+            try:
+                data = call(path)
+                memo[kind] = path
+                return path, data
+            except urllib.error.HTTPError as e:
+                last = e
+                if e.code not in (401, 403, 404):
+                    raise
+        raise last
+
+    lk = memo["location"]
+    q = "?details=true&metric=false"
+    _, dd = first_allowed("daily", [f"/forecasts/v1/daily/{n}day/{lk}{q}" for n in (15, 10, 5)])
+    try:
+        _, hh = first_allowed("hourly", [f"/forecasts/v1/hourly/{n}hour/{lk}{q}" for n in (72, 12)])
+    except urllib.error.HTTPError:
+        hh = []
+    save_json(memo_file, memo)
+
+    # AccuWeather's "low" for a day is the following night's low; move it to the next
+    # calendar day so it matches the other sources (each day's low = that morning's low).
+    days = dd["DailyForecasts"]
+    daily = []
+    for i, x in enumerate(days):
+        dy, nt = x.get("Day", {}), x.get("Night", {})
+        pops = [p for p in (dy.get("PrecipitationProbability"), nt.get("PrecipitationProbability")) if p is not None]
+        text = dy.get("IconPhrase") or nt.get("IconPhrase")
+        daily.append({"date": x["Date"][:10], "hi": x["Temperature"]["Maximum"]["Value"],
+                      "lo": days[i - 1]["Temperature"]["Minimum"]["Value"] if i else None,
+                      "pop": max(pops) if pops else None,
+                      "precip": round(((dy.get("TotalLiquid") or {}).get("Value") or 0) +
+                                      ((nt.get("TotalLiquid") or {}).get("Value") or 0), 2),
+                      "snow": round(((dy.get("Snow") or {}).get("Value") or 0) +
+                                    ((nt.get("Snow") or {}).get("Value") or 0), 1),
+                      "text": text, "icon": text_icon(text), "narrative": dy.get("LongPhrase")})
+    hourly = [{"t": clock.hour(clock.from_iso(x["DateTime"])), "temp": x["Temperature"]["Value"],
+               "pop": x.get("PrecipitationProbability"),
+               "wind": r0(((x.get("Wind") or {}).get("Speed") or {}).get("Value")),
+               "gust": r0(((x.get("WindGust") or {}).get("Speed") or {}).get("Value")),
+               "text": x.get("IconPhrase"), "icon": text_icon(x.get("IconPhrase"))} for x in hh]
+    return {"daily": daily, "hourly": hourly,
+            "extra": {"daily_plan": memo.get("daily"), "hourly_plan": memo.get("hourly")}}
+
+
 def src_pirate(cfg, keys, clock):
     d = get(f"https://api.pirateweather.net/forecast/{urllib.parse.quote(keys['pirateweather'])}/"
             f"{cfg['lat']},{cfg['lon']}?units=us&extend=hourly")
@@ -539,6 +622,7 @@ SOURCES = [
     ("Tempest (live, local)", src_weather_display, None, 0, None),
     ("Your Tempest", src_tempest, "tempest_token", 5, "https://tempestwx.com/settings/tokens"),
     ("Weather.com", src_weathercom, "weathercom", 30, "https://www.wunderground.com/member/api-keys"),
+    ("AccuWeather", src_accuweather, "accuweather", 60, "https://developer.accuweather.com/"),
     ("Pirate Weather", src_pirate, "pirateweather", 30, "https://pirate-weather.apiable.io/"),
     ("Visual Crossing", src_visualcrossing, "visualcrossing", 60, "https://www.visualcrossing.com/sign-up"),
     ("WeatherAPI", src_weatherapi, "weatherapi", 30, "https://www.weatherapi.com/signup.aspx"),
