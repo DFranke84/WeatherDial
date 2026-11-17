@@ -364,10 +364,11 @@ def src_nws(cfg, keys, clock):
 
 def src_tempest(cfg, keys, clock):
     tok = keys.get("tempest_token")
-    sid = cfg.get("tempest_station_id")
-    if not sid:
-        st = get("https://swd.weatherflow.com/swd/rest/stations?token=" + urllib.parse.quote(tok))
-        sid = st["stations"][0]["station_id"]
+    st = get("https://swd.weatherflow.com/swd/rest/stations?token=" + urllib.parse.quote(tok))
+    station = next((s for s in st["stations"] if s["station_id"] == cfg.get("tempest_station_id")),
+                   st["stations"][0])
+    sid = station["station_id"]
+    device = next((dv["device_id"] for dv in station.get("devices", []) if dv.get("device_type") == "ST"), None)
     units = "&units_temp=f&units_wind=mph&units_pressure=inhg&units_precip=in&units_distance=mi"
     d = get(f"https://swd.weatherflow.com/swd/rest/better_forecast?station_id={sid}{units}"
             f"&token={urllib.parse.quote(tok)}")
@@ -395,7 +396,23 @@ def src_tempest(cfg, keys, clock):
                "pop": x.get("precip_probability"), "wind": r0(x.get("wind_avg")),
                "gust": r0(x.get("wind_gust")), "text": x.get("conditions"),
                "icon": text_icon(x.get("conditions"))} for x in f.get("hourly", [])]
-    return {"daily": daily, "hourly": hourly, "now": now, "extra": {"station_id": sid}}
+    # Highest wind and gust today and yesterday, from the station's own history
+    # (complete, whether or not WeatherDial was running).
+    wind_max = {}
+    if device:
+        midnight = clock.from_epoch(time.time()).replace(hour=0, minute=0, second=0, microsecond=0)
+        start = int(time.time() - (clock.from_epoch(time.time()) - midnight).total_seconds()) - 86400
+        h = get(f"https://swd.weatherflow.com/swd/rest/observations/device/{device}"
+                f"?time_start={start}&time_end={int(time.time())}&token={urllib.parse.quote(tok)}")
+        for ob in h.get("obs") or []:
+            t = clock.from_epoch(ob[0])
+            day = wind_max.setdefault(clock.day(t), {"wind": None, "gust": None})
+            for k, i in (("wind", 2), ("gust", 3)):
+                v = ob[i] if len(ob) > i else None
+                if v is not None and (day[k] is None or v * 2.23694 > day[k]):
+                    day[k], day[k + "_at"] = round(v * 2.23694), t.strftime("%H:%M")
+    return {"daily": daily, "hourly": hourly, "now": now,
+            "extra": {"station_id": sid, "wind_max": wind_max}}
 
 
 WD_WEATHER = {"RA": "Rain", "-RA": "Light rain", "+RA": "Heavy rain", "SN": "Snow", "-SN": "Light snow",
@@ -458,13 +475,15 @@ def src_weathercom(cfg, keys, clock):
     return {"daily": daily, "hourly": []}
 
 
-def src_accuweather(cfg, keys, clock):
-    """AccuWeather daily + hourly. Finds (once) the location key, how the key must be sent
-    and which forecast lengths the plan allows, and remembers that in data/cache."""
+ACCU_MEMO = CACHE / "accuweather_setup.json"
+
+
+def accu_session(cfg, keys):
+    """Shared AccuWeather setup: how the key is sent and the location key, found once and
+    remembered in data/cache. Returns (call, memo)."""
     key = keys["accuweather"]
     base = "https://dataservice.accuweather.com"
-    memo_file = CACHE / "accuweather_setup.json"
-    memo = load_json(memo_file, {})
+    memo = load_json(ACCU_MEMO, {})
     if memo.get("key_id") != key[-6:] or memo.get("where") != [cfg["lat"], cfg["lon"]]:
         memo = {"key_id": key[-6:], "where": [cfg["lat"], cfg["lon"]]}
 
@@ -486,7 +505,16 @@ def src_accuweather(cfg, keys, clock):
                 if e.code not in (401, 403):
                     raise
         else:
-            raise RuntimeError("AccuWeather refused the key (expired trial or wrong key?)")
+            raise urllib.error.HTTPError("", 401, "key refused", None, None)
+        save_json(ACCU_MEMO, memo)
+    return call, memo
+
+
+def src_accuweather(cfg, keys, clock):
+    """AccuWeather daily + hourly, using the longest forecasts the plan allows (checked once
+    a day, so an upgrade or downgrade is picked up by itself)."""
+    call, memo = accu_session(cfg, keys)
+    memo_file = ACCU_MEMO
 
     def first_allowed(kind, options):
         # Re-check now and then (once a day) in case the plan changed, e.g. after subscribing.
@@ -538,6 +566,40 @@ def src_accuweather(cfg, keys, clock):
     return {"daily": daily, "hourly": hourly,
             "extra": {"daily_plan": memo.get("daily"), "hourly_plan": memo.get("hourly")}}
 
+
+def src_minutecast(cfg, keys, clock):
+    """AccuWeather MinuteCast: rain/snow minute by minute for the next 2 hours.
+    Included in the AccuWeather trial; a paid add-on afterwards."""
+    call, _ = accu_session(cfg, keys)
+    d = call(f"/forecasts/v1/minute?q={cfg['lat']},{cfg['lon']}")
+    segs = [{"start": s["StartMinute"], "end": s["EndMinute"], "type": (s.get("Type") or "").lower() or None}
+            for s in d.get("Summaries") or []]
+    return {"daily": [], "hourly": [],
+            "minutecast": {"phrase": (d.get("Summary") or {}).get("Phrase"),
+                           "type": ((d.get("Summary") or {}).get("Type") or "").lower() or None,
+                           "segments": segs, "at": clock.from_epoch(time.time()).isoformat(timespec="minutes")}}
+
+
+# AccuWeather health & lifestyle indices shown on the Health tab, by ID and group. Change with
+# "index_groups": {"Group name": [ids...]} in config.json. Full list: python weather.py --indices
+INDEX_GROUPS = {
+    "Health": [21, 30, 27, 23, 44, 25, 26, 48, -14, -11, -13, -12, 18],
+    "Outdoors & home": [3, 20, 13, 15, 19, 40, 28, 38, 32, 34, 17, 46, 50, 12, 36, 43],
+}
+
+
+def src_indices(cfg, keys, clock):
+    """AccuWeather health & lifestyle indices, 5 days, one call."""
+    call, memo = accu_session(cfg, keys)
+    data = call(f"/indices/v1/daily/5day/{memo['location']}")
+    by_id = {}
+    for x in data:
+        by_id.setdefault(x["ID"], {"id": x["ID"],
+                                   "name": x["Name"].replace(" Forecast", "").replace(", brought to you by Country Time", ""),
+                                   "ascending": x.get("Ascending"), "days": []})
+        by_id[x["ID"]]["days"].append({"date": x["LocalDateTime"][:10], "category": x.get("Category"),
+                                       "level": x.get("CategoryValue"), "value": x.get("Value")})
+    return {"daily": [], "hourly": [], "indices": by_id}
 
 def src_pirate(cfg, keys, clock):
     d = get(f"https://api.pirateweather.net/forecast/{urllib.parse.quote(keys['pirateweather'])}/"
@@ -625,6 +687,8 @@ SOURCES = [
     ("Your Tempest", src_tempest, "tempest_token", 5, "https://tempestwx.com/settings/tokens"),
     ("Weather.com", src_weathercom, "weathercom", 30, "https://www.wunderground.com/member/api-keys"),
     ("AccuWeather", src_accuweather, "accuweather", 60, "https://developer.accuweather.com/"),
+    ("AccuWeather MinuteCast", src_minutecast, "accuweather", 30, "https://developer.accuweather.com/"),
+    ("AccuWeather indices", src_indices, "accuweather", 360, "https://developer.accuweather.com/"),
     ("Pirate Weather", src_pirate, "pirateweather", 30, "https://pirate-weather.apiable.io/"),
     ("Visual Crossing", src_visualcrossing, "visualcrossing", 60, "https://www.visualcrossing.com/sign-up"),
     ("WeatherAPI", src_weatherapi, "weatherapi", 30, "https://www.weatherapi.com/signup.aspx"),
@@ -669,6 +733,41 @@ def consensus(forecasts, field_days):
     return out
 
 
+def track_wind(now, today, now_local, history=None):
+    """Keep today's (and yesterday's) highest wind and gust seen in the 'now' readings,
+    and add them to `now` as wind_max (for the Wind tooltip). history = full-day maxima
+    from the Tempest cloud, when available: used in preference (it covers the whole day)."""
+    path = DATA / "wind_max.json"
+    log = load_json(path, {})
+    day = log.get("today") or {}
+    if day.get("date") != today:
+        if day.get("date"):
+            log["yesterday"] = day
+        day = {"date": today, "since": now_local.strftime("%H:%M"), "wind": None, "gust": None}
+    hhmm = now_local.strftime("%H:%M")
+    for k in ("wind", "gust"):
+        v = now.get(k)
+        if v is not None and (day.get(k) is None or v > day[k]):
+            day[k], day[k + "_at"] = v, hhmm
+    log["today"] = day
+    save_json(path, log)
+    y = log.get("yesterday")
+    y = y if y and y.get("date") < today else None
+    history = history or {}
+
+    def best(own, date):
+        h = history.get(date)
+        if not h or h.get("gust") is None:
+            return own
+        out = {"date": date, "since": "00:00", **h}
+        for k in ("wind", "gust"):   # a live 3-second reading can beat the 1-minute history
+            if own and own.get(k) is not None and own[k] > (out.get(k) or 0):
+                out[k], out[k + "_at"] = own[k], own.get(k + "_at")
+        return out
+    ydate = (now_local - dt.timedelta(days=1)).strftime("%Y-%m-%d")
+    now["wind_max"] = {"today": best(day, today), "yesterday": best(y, ydate)}
+
+
 def fetch(force=False):
     cfg = load_json(HERE / "config.json")
     keys = load_json(HERE / "keys.json", {})
@@ -692,14 +791,33 @@ def fetch(force=False):
         wait = min(every * 60, 120) if force else every * 60
         if old and time.time() - old["fetched"] < wait:
             return name, old["data"], {"state": "ok", "fetched": old["fetched"], "keyed": bool(keyname)}
+        # After a failure, wait before trying again so a refused key or a dead service
+        # isn't called every 30 seconds: 6 hours if the key was refused, else the normal pace.
+        efile = CACHE / (fn.__name__ + ".error.json")
+        err = load_json(efile)
+        if err and err.get("key") == (keys.get(keyname) or "")[-6:]:
+            pause = 6 * 3600 if err.get("refused") else max(every * 60, 300)
+            if time.time() - err["time"] < pause:
+                st = {"state": "stale" if old else "error", "error": err["error"], "keyed": bool(keyname),
+                      "retry": err["time"] + pause}
+                if old:
+                    st["fetched"] = old["fetched"]
+                return name, old["data"] if old else None, st
         args = (cfg, keys) if fn in (src_openmeteo, src_openmeteo_models, src_air) else (cfg, keys, clock)
         try:
             data = fn(*args)
             save_json(cfile, {"fetched": time.time(), "data": data})
+            efile.unlink(missing_ok=True)
             return name, data, {"state": "ok", "fetched": time.time(), "keyed": bool(keyname)}
         except Exception as e:
-            st = {"state": "error", "error": short_error(e), "keyed": bool(keyname)}
-            if old:   # keep showing the last good data
+            refused = isinstance(e, urllib.error.HTTPError) and e.code in (401, 403)
+            msg = short_error(e)
+            if refused and fn in (src_minutecast, src_indices):
+                msg = f"not in your AccuWeather plan, or key refused (HTTP {e.code})"
+            save_json(efile, {"time": time.time(), "error": msg, "refused": refused,
+                              "key": (keys.get(keyname) or "")[-6:]})
+            st = {"state": "error", "error": msg, "keyed": bool(keyname)}
+            if old and not refused:   # keep showing the last good data
                 st.update(state="stale", fetched=old["fetched"])
                 return name, old["data"], st
             return name, None, st
@@ -722,7 +840,7 @@ def fetch(force=False):
                 fc_daily[mname], fc_hourly[mname] = md["daily"], md["hourly"]
                 status[mname] = {**status["models"], "via": "Open-Meteo"}
             continue
-        if name == "Open-Meteo" or not data["daily"]:   # blend / live-only: not a separate forecast
+        if name == "Open-Meteo" or not data.get("daily"):   # blend / live-only / extras: not a forecast
             continue
         fc_daily[name] = data["daily"]
         if data["hourly"]:
@@ -766,6 +884,22 @@ def fetch(force=False):
     readings = [r for r in (wd.get("now"), tem.get("now") if not wd.get("now") else None, nws.get("now"), dict(om.get("now") or {}, station="Open-Meteo model"))
                 if r and r.get("temp") is not None]
     sun = {d["date"]: d for d in om.get("daily", [])}
+    if readings:
+        track_wind(readings[0], today, now_local, tem.get("extra", {}).get("wind_max"))
+
+    # Optional AccuWeather extras: shown only when available (and MinuteCast only while fresh).
+    mc = (results.get("AccuWeather MinuteCast") or {}).get("minutecast")
+    mc_age = time.time() - (status.get("AccuWeather MinuteCast") or {}).get("fetched", 0)
+    minutecast = mc if mc and mc_age < 45 * 60 else None
+    idx = (results.get("AccuWeather indices") or {}).get("indices") or {}
+    groups = cfg.get("index_groups") or INDEX_GROUPS
+    indices = None
+    if idx:
+        indices = [{"group": g, "items": [idx[str(i)] if str(i) in idx else idx[i]
+                                           for i in ids if str(i) in idx or i in idx]}
+                   for g, ids in groups.items()]
+        indices = [g for g in indices if g["items"]] or None
+
     out = {
         "updated": now_local.isoformat(timespec="minutes"),
         "location": {"name": cfg.get("name", "Home"), "near": nws.get("extra", {}).get("near"),
@@ -781,6 +915,8 @@ def fetch(force=False):
         "discussion": nws.get("extra", {}).get("discussion"),
         "air": air.get("now"),
         "sky": {"today": sun.get(today), "moon": moon(dt.datetime.now(UTC))},
+        "minutecast": minutecast,
+        "indices": indices,
         "sources": status,
     }
     save_json(DATA / "latest.json", out)
@@ -788,6 +924,11 @@ def fetch(force=False):
 
 
 if __name__ == "__main__":
+    if "--indices" in sys.argv:   # list every AccuWeather index ID (from the last download)
+        idx = (load_json(CACHE / "src_indices.json") or {}).get("data", {}).get("indices", {})
+        for i, x in sorted(idx.items(), key=lambda kv: int(kv[0])):
+            print(f"{i:>4}  {x['name']}  (today: {x['days'][0]['category']})")
+        sys.exit()
     o = fetch(force="--force" in sys.argv)
     for name, st in o["sources"].items():
         print(f"{name:22} {st['state']:8} {st.get('error', '')}")

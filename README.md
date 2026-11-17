@@ -13,6 +13,8 @@ live readings on top.
   rain today, UV and solar, sunrise and sunset, moon, air quality and lightning.
 - **Warnings:** National Weather Service alerts appear as a red banner. Click it to read the
   full alert and what to do.
+- **Next 2 hours** *(AccuWeather MinuteCast, optional)*: e.g. "Rain starting in 6 min", with
+  a 2-hour bar (blue rain, white snow, purple ice).
 - **Hourly:** a 48-hour or 7-day chart. It shows the forecast line (the official NWS forecast
   where it has one), a shaded band for the range of all sources, feels-like (dotted),
   chance of rain or snow (blue bars for rain, white for snow), wind, night shading and the
@@ -22,6 +24,12 @@ live readings on top.
 - **Compare:** every source's highs and lows side by side, plus the current readings from
   your station, the nearest airport and the model.
 - **Radar:** an animated loop of the last 80 minutes, starting on the newest frame.
+- **Health** *(AccuWeather indices, optional)*: today and the next 4 days for health
+  (arthritis, sinus, migraine, asthma, COPD, cold, flu, dry skin, pollen, mold, dust) and for
+  outdoors and home (hiking, hunting, fishing, skiing, snow days, driving, lawn mowing,
+  composting, field readiness, soil moisture, mosquitoes, pests, clothes drying, stargazing,
+  home energy, dog walking). Green is good for you or for that activity, yellow is so-so, red
+  is poor or risky.
 - **Forecaster:** the written forecast discussion from your NWS office.
 - **Sources:** which sources are working, with sign-up links for the optional keys.
 - **Compact mode:** just current conditions plus 4 days.
@@ -30,9 +38,16 @@ live readings on top.
 |---|---|---|
 | ![16-Day](docs/screenshots/daily.png) | ![Compare](docs/screenshots/compare.png) | ![Radar](docs/screenshots/radar.png) |
 
-| Forecaster's discussion | Sources | Compact mode |
+| Health (AccuWeather) | Forecaster's discussion | Sources |
 |---|---|---|
-| ![Forecaster](docs/screenshots/forecaster.png) | ![Sources](docs/screenshots/sources.png) | ![Compact](docs/screenshots/compact.png) |
+| ![Health](docs/screenshots/health.png) | ![Forecaster](docs/screenshots/forecaster.png) | ![Sources](docs/screenshots/sources.png) |
+
+| Compact mode | Without the optional extras |
+|---|---|
+| ![Compact](docs/screenshots/compact.png) | ![No extras](docs/screenshots/no-extras.png) |
+
+The optional parts (MinuteCast, Health, lightning and so on) appear only when their key
+allows them. Without any keys the panel looks like the last picture and still works fully.
 
 ### Hidden extras
 
@@ -48,6 +63,11 @@ live readings on top.
 - **Hover the agreement dot** in 16-Day to see the warmest and coldest highs and how many
   sources there are.
 - **Hover the Lightning box** to see the distance of the last strike.
+- **Hover the Wind box** to see today's and yesterday's highest wind and gust and when they
+  happened. With the Tempest token this comes from your station's full history; without it,
+  from what WeatherDial saw while running (it says so).
+- **Hover Rain today** to see yesterday's rain (needs the Tempest token).
+- **Hover a square** on the Health tab to see that day's rating.
 
 ## How it behaves
 
@@ -74,6 +94,7 @@ size and tab, hides while its monitor is off, and comes back when the monitor is
 | `lat`, `lon` | Your location in decimal degrees. West longitudes are negative, e.g. `-114.3`. Tip: right-click your house in Google Maps and click the numbers to copy them. |
 | `refresh_minutes` | How often the no-key sources (NWS and Open-Meteo) refresh, at least every 2 minutes. Keyed sources keep their own safe pace (see the table below), so this can't use up a key's daily limit. |
 | `weather_display_dir` | Optional. The Weather Display folder, if Weather Display runs your station (see below). Leave it blank otherwise. |
+| `index_groups` | Optional. Which AccuWeather indices the Health tab shows, and in which groups, e.g. `{"Health": [21, 30, -14], "Outdoors": [3, 20, 13]}`. Run `python weather.py --indices` to list every index with its number. |
 | `source_minutes` | Optional. How often a particular source refreshes, overriding the pace in the table below, e.g. `{"AccuWeather": 10}`. Use the name shown in the Sources tab; the minimum is 2. Check that source's daily limit first. AccuWeather, for example, uses 2 requests per refresh, so every 10 minutes is about 288 a day. |
 
 Right-click the panel → **Edit location…** to open the file. Your changes are used from the
@@ -105,6 +126,8 @@ forecast in the average.
 | Tempest cloud | `tempest_token`: tempestwx.com → Settings → Data Authorizations → Create Token | Lightning, yesterday's rain, Tempest's own 10-day and hourly forecast | every 5 min |
 | Weather.com | `weathercom`: free for Weather Underground station owners, at wunderground.com/member/api-keys | weather.com's 5-day forecast (this key doesn't include hourly or 7/10-day) | every 30 min |
 | AccuWeather | `accuweather`: developer.accuweather.com (free trial, then paid plans) | 15-day and up to 120-hour forecast, depending on your plan (it checks once a day what the plan allows, so an upgrade is picked up automatically) | every 60 min (2 requests each, ~48 a day). The trial allows 500 a day and paid plans more, so set `source_minutes` to refresh it faster. |
+| AccuWeather MinuteCast | same `accuweather` key; in the trial, then a paid add-on | Rain or snow minute by minute for the next 2 hours. Hidden if your plan doesn't include it. | every 30 min (~48 a day; the trial allows 50) |
+| AccuWeather indices | same `accuweather` key | Health & lifestyle ratings for 5 days (Health tab). Hidden if your plan doesn't include it. | every 6 hours |
 | Pirate Weather | `pirateweather`: free at pirate-weather.apiable.io | 8-day and hourly forecast | every 30 min |
 | WeatherAPI.com | `weatherapi`: free at weatherapi.com | 14-day and hourly forecast (3 days on the free plan after the trial) | every 30 min |
 | Visual Crossing | `visualcrossing`: free at visualcrossing.com | 15-day and hourly forecast | every 60 min |
@@ -117,7 +140,10 @@ quotes, and save. It's used from the next refresh. To stop using a source, clear
 **When a key stops working** (an expired trial, or a daily limit reached), the **Sources** tab
 says so ("key refused: expired trial or wrong key?" or "too many requests today"). The panel
 keeps working with the other sources. If a source fails briefly, its last good forecast stays
-in use and the source shows yellow.
+in use and the source shows yellow. A refused key is tried again only every 6 hours, and any
+other failure at the source's normal pace, so a dead key never eats into a daily limit.
+Sources shows when it will try again. MinuteCast and Health disappear by themselves when
+AccuWeather stops allowing them, e.g. after a trial.
 
 **Tempest and Weather Display:** only one program can listen to the Tempest hub's local
 broadcast (UDP port 50222). If Weather Display already does, set `weather_display_dir`.

@@ -102,6 +102,19 @@
   #radar .stamp { position: absolute; left: 8px; bottom: 6px; z-index: 6; background: #000a; padding: 1px 6px; border-radius: 4px; }
   #radar .credit { position: absolute; right: 6px; bottom: 4px; z-index: 6; font-size: 10px; color: #aaa; }
 
+  #mc { padding: 2px 12px 8px; display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: center; }
+  #mc[hidden] { display: none; }
+  #mc .ph { font-weight: 600; }
+  #mc .ph small { font-weight: 400; color: var(--faint); }
+  #mc .strip { grid-column: 1 / -1; position: relative; height: 8px; background: #ffffff10; border-radius: 4px; overflow: hidden; }
+  #mc .strip i { position: absolute; top: 0; bottom: 0; }
+  #mc .ticks { grid-column: 1 / -1; display: flex; justify-content: space-between; color: var(--faint); font-size: 10px; }
+  table.idx { border-collapse: collapse; width: 100%; font-size: 12px; }
+  table.idx th { color: var(--faint); font-weight: 400; text-align: center; padding: 1px 2px; }
+  table.idx td { padding: 3px 2px; border-top: 1px solid #ffffff0a; text-align: center; }
+  table.idx td:first-child { text-align: left; white-space: nowrap; }
+  .chip { display: inline-block; min-width: 92px; padding: 1px 6px; border-radius: 4px; color: #111; font-weight: 600; font-size: 11px; }
+  .sq { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: middle; }
   pre.afd { white-space: pre-wrap; font: 12px/1.4 Consolas, monospace; color: #cfd3da; margin: 0; }
   .src { display: grid; grid-template-columns: 12px 1fr auto; gap: 8px; align-items: center; padding: 3px 0; border-bottom: 1px solid #ffffff0a; }
   .src .note { color: var(--faint); font-size: 12px; }
@@ -122,16 +135,18 @@
   </header>
   <div id="alerts"></div>
   <div class="now drag" id="now"></div>
+  <div id="mc" hidden></div>
   <div class="stats" id="stats"></div>
   <div class="mini3" id="mini3"></div>
   <nav id="nav">
     <div data-t="hourly" class="on">Hourly</div><div data-t="daily">16-Day</div><div data-t="compare">Compare</div>
-    <div data-t="radar">Radar</div><div data-t="afd">Forecaster</div><div data-t="sources">Sources</div>
+    <div data-t="radar">Radar</div><div data-t="health" id="navHealth" hidden>Health</div><div data-t="afd">Forecaster</div><div data-t="sources">Sources</div>
   </nav>
   <div class="tab on" id="t-hourly"></div>
   <div class="tab" id="t-daily"></div>
   <div class="tab" id="t-compare"></div>
   <div class="tab" id="t-radar"><div id="radar"></div><div style="margin-top:6px;color:var(--dim)" id="radarInfo"></div></div>
+  <div class="tab" id="t-health"></div>
   <div class="tab" id="t-afd"></div>
   <div class="tab" id="t-sources"></div>
   <div id="grip" title="Drag to make the panel taller or shorter. Double-click: fit this tab."></div>
@@ -194,8 +209,17 @@ const hm = s => s ? clock(s).replace(" AM", "a").replace(" PM", "p") : "–";
 const tempColor = t => t == null ? "#888" : t < 10 ? "#a78bff" : t < 32 ? "#6cb6ff" : t < 50 ? "#7fd6c2" : t < 70 ? "#c6e06a" : t < 85 ? "#ffb347" : "#ff6a4f";
 const aqiInfo = a => a == null ? ["–", "#888"] : a <= 50 ? ["Good", "#5fd068"] : a <= 100 ? ["Moderate", "#ffc933"] : a <= 150 ? ["Unhealthy (sensitive)", "#ff8c3a"] : a <= 200 ? ["Unhealthy", "#ff4f4f"] : ["Very unhealthy", "#b04fff"];
 const isNight = () => { const s = D?.sky?.today; if (!s) return false; const n = new Date(); return n < new Date(s.sunrise) || n > new Date(s.sunset); };
+const hhmm = s => { if (!s) return ""; let [h, m] = s.split(":").map(Number); return `${h % 12 || 12}:${String(m).padStart(2, "0")}${h < 12 ? "a" : "p"}`; };
+function windTip(w) {
+  if (!w) return "";
+  const t = w.today, y = w.yesterday, lines = [];
+  lines.push(`Max today: wind ${f0(t.wind)} mph (${hhmm(t.wind_at)}), gust ${f0(t.gust)} mph (${hhmm(t.gust_at)})`);
+  if (t.since && t.since !== "00:00") lines.push(`  (since ${hhmm(t.since)}, when WeatherDial started)`);
+  if (y) lines.push(`Max yesterday: wind ${f0(y.wind)} mph, gust ${f0(y.gust)} mph` + (y.since && y.since !== "00:00" ? ` (from ${hhmm(y.since)})` : ""));
+  return lines.join("\n");
+}
 const moonGlyph = p => ["🌑","🌒","🌓","🌔","🌕","🌖","🌗","🌘"][Math.round(p * 8) % 8];
-const esc = s => (s || "").replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 function ago(iso) {
   if (!iso) return ""; const s = (Date.now() - new Date(iso)) / 1000;
   return s < 90 ? "just now" : s < 3600 ? Math.round(s / 60) + " min ago" : Math.round(s / 3600) + " h ago";
@@ -225,20 +249,61 @@ function render() {
                                                          : `<small title="Last strike ${lastStrike}, ${f0(n.strike_dist)} mi away">none · last ${lastStrike}</small>`)
                                          : `<small>add Tempest token</small>`;
   const stats = [
-    ["Wind", `${f0(n.wind)} <small>${compass(n.dir)} · gust ${f0(n.gust)}</small>`],
+    ["Wind", `${f0(n.wind)} <small>${compass(n.dir)} · gust ${f0(n.gust)}</small>`, "", windTip(n.wind_max)],
     ["Humidity", `${f0(n.rh)}% <small>dew ${f0(n.dew)}°</small>`],
     ["Pressure", `${n.pressure ? n.pressure.toFixed(2) : "–"} <small>${trendArrow} ${n.trend || "inHg"}</small>`],
-    ["Rain today", `${n.rain_today != null ? n.rain_today.toFixed(2) + '"' : "–"} <small>${n.rain_rate ? "falling now" : ""}</small>`],
+    ["Rain today", `${n.rain_today != null ? n.rain_today.toFixed(2) + '"' : "–"} <small>${n.rain_rate ? "falling now" : ""}</small>`, "",
+     n.rain_yesterday != null ? `Rain yesterday: ${(+n.rain_yesterday).toFixed(2)}"` : "Rain yesterday needs the Tempest cloud token"],
     ["UV / sun", `${n.uv ?? sky.uv ?? "–"} <small>${n.solar != null ? Math.round(n.solar) + " W/m²" : ""}</small>`, "extra"],
     ["Sun · moon", `<small>↑</small>${hm(sky.sunrise)} <small>↓</small>${hm(sky.sunset)} <small title="${D.sky.moon.name}, ${D.sky.moon.illum}% lit">${moonGlyph(D.sky.moon.phase)}</small>`, "extra"],
     ["Air quality", `<span style="color:${aq[1]}">${D.air?.us_aqi ?? "–"}</span> <small>${aq[0]}</small>`, "extra"],
     ["Lightning", strikes, "extra"],
   ];
-  $("stats").innerHTML = stats.map(([k, v, c]) => `<div class="stat ${c || ""}"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+  $("stats").innerHTML = stats.map(([k, v, c, tip]) => `<div class="stat ${c || ""}"${tip ? ` title="${esc(tip)}"` : ""}><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
   $("mini3").innerHTML = D.days.slice(0, 4).map((d, i) => `<div>${i ? dayName(d.date) : "Today"}<br>${icon(d.icon, 26)}<br>
     <span style="color:var(--warm)">${f0(d.hi)}°</span> <span style="color:var(--cold)">${f0(d.lo)}°</span></div>`).join("");
 
+  renderMinuteCast(); renderHealth();
   renderHourly(); renderDaily(); renderCompare(); renderAfd(); renderSources();
+}
+
+// ---------------------------------------------------------------- optional AccuWeather extras
+// Both appear only when there's data (AccuWeather key with MinuteCast / indices access).
+function renderMinuteCast() {
+  const m = D.minutecast, box = $("mc");
+  box.hidden = !m;
+  if (!m) return;
+  const col = { rain: "#4d9fff", snow: "#e6edf7", ice: "#b48cff", mix: "#9ec5ff" };
+  const segs = m.segments.filter(s => s.type).map(s =>
+    `<i style="left:${s.start / 120 * 100}%;width:${(s.end - s.start + 1) / 120 * 100}%;background:${col[s.type] || "#4d9fff"}" title="${s.type} from ${s.start} to ${s.end + 1} min"></i>`).join("");
+  const wet = m.segments.some(s => s.type);
+  box.innerHTML = `<div>${icon(m.type === "snow" ? "snow" : wet ? "rain" : "clear", 20)}</div>
+    <div class="ph">${esc(m.phrase || "No rain or snow for the next 2 hours")} <small>· next 2 hours, as of ${hm(m.at)} · AccuWeather MinuteCast</small></div>
+    ${wet ? `<div class="strip">${segs}</div><div class="ticks"><span>now</span><span>30</span><span>60</span><span>90</span><span>120 min</span></div>` : ""}`;
+}
+
+const goodness = (x, d) => d.level == null ? null : x.ascending ? d.level : 6 - d.level;   // 5 = best
+const goodCol = g => g == null ? "#555" : ["#ff5a4f", "#ff9a4f", "#ffc933", "#a7d86a", "#5fd068"][Math.max(1, Math.min(5, g)) - 1];
+function renderHealth() {
+  const G = D.indices;
+  $("navHealth").hidden = !G;
+  if (!G) { if ($("t-health").classList.contains("on")) showTab("hourly"); return; }
+  const days = G[0].items[0].days.slice(0, 5);
+  let h = "";
+  for (const g of G) {
+    h += `<h4>${esc(g.group)}</h4><table class="idx"><tr><th></th><th>Today</th>${days.slice(1).map(d => `<th>${dayName(d.date)}</th>`).join("")}</tr>`;
+    for (const x of g.items) {
+      const t = x.days[0];
+      h += `<tr><td>${esc(x.name)}</td>
+        <td><span class="chip" style="background:${goodCol(goodness(x, t))}" title="${esc(x.name)} today: ${esc(t.category)}">${esc(t.category)}</span></td>
+        ${x.days.slice(1, 5).map(d => `<td><span class="sq" style="background:${goodCol(goodness(x, d))}" title="${esc(x.name)}, ${dayName(d.date, true)}: ${esc(d.category)}"></span></td>`).join("")}</tr>`;
+    }
+    h += `</table>`;
+  }
+  h += `<p style="color:var(--dim);font-size:11px;margin-top:8px"><span class="sq" style="background:#5fd068;width:10px;height:10px"></span> good for you / for that activity &nbsp;
+    <span class="sq" style="background:#ffc933;width:10px;height:10px"></span> so-so &nbsp;
+    <span class="sq" style="background:#ff5a4f;width:10px;height:10px"></span> poor or risky. Hover a square for the day's rating. From AccuWeather.</p>`;
+  $("t-health").innerHTML = h;
 }
 
 function renderHourly() {
@@ -355,7 +420,8 @@ function renderSources() {
   $("t-sources").innerHTML = Object.entries(S).map(([k, s]) => {
     const col = s.state === "ok" ? "var(--good)" : s.state === "no key" ? "var(--faint)" : s.state === "stale" ? "var(--fair)" : "var(--bad)";
     const note = s.state === "ok" ? [s.via ? "via " + s.via : "", s.fetched ? ago(new Date(s.fetched * 1000).toISOString()) : ""].filter(Boolean).join(" · ")
-      : s.state === "no key" ? `free key needed · <a href="${s.signup}" target="_blank">sign up</a>` : esc(s.error || s.state);
+      : s.state === "no key" ? `${/accuweather/i.test(k) ? "key needed" : "free key needed"} · <a href="${s.signup}" target="_blank">sign up</a>`
+      : esc(s.error || s.state) + (s.retry ? ` · tries again ${hm(new Date(s.retry * 1000).toISOString())}` : "");
     return `<div class="src"><div class="dot" style="background:${col}"></div><div>${k}${s.keyed ? ' <small style="color:var(--faint)">(key)</small>' : ""}</div><div class="note">${note}</div></div>`;
   }).join("") + `<p style="color:var(--faint);font-size:11px">To add or change a key: right-click the panel → <b>Edit API keys…</b>, paste it, save. It's used from the next refresh. Radar: RainViewer. Map: Esri.</p>`;
 }
@@ -486,6 +552,10 @@ async function load(force) {
   try {
     const r = await fetch("data/latest.json" + (force ? "?force=1" : ""), { cache: "no-store" });
     D = await r.json();
+    if (Q.has("noextras")) {   // screenshot of the panel without the optional AccuWeather / Tempest extras
+      D.minutecast = D.indices = null;
+      if (D.now) ["strikes_3h", "strike_dist", "strike_time", "rain_yesterday"].forEach(k => delete D.now[k]);
+    }
     const openDays = [...document.querySelectorAll(".detail.open")].map(x => x.id);
     render();
     openDays.forEach(id => $(id)?.classList.add("open"));
