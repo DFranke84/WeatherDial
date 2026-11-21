@@ -438,8 +438,13 @@ def temps_from_obs(obs, clock):
             continue
         t = clock.from_epoch(ob[0])
         f = ob[7] * 9 / 5 + 32
-        d = out.setdefault(clock.day(t), {"hi": f, "lo": f, "first": t.strftime("%H:%M"), "n": 0})
-        d["hi"], d["lo"], d["last"], d["n"] = max(d["hi"], f), min(d["lo"], f), t.strftime("%H:%M"), d["n"] + 1
+        hm = t.strftime("%H:%M")
+        d = out.setdefault(clock.day(t), {"hi": f, "lo": f, "hi_at": hm, "lo_at": hm, "first": hm, "n": 0})
+        if f > d["hi"]:
+            d["hi"], d["hi_at"] = f, hm
+        if f < d["lo"]:
+            d["lo"], d["lo_at"] = f, hm
+        d["last"], d["n"] = hm, d["n"] + 1
     for d in out.values():
         d["hi"], d["lo"] = round(d["hi"], 1), round(d["lo"], 1)
     return out
@@ -1085,18 +1090,41 @@ def gauge_data(now, tem_extra, today):
             bucket = [int(e), avg or 0, gust or 0]
     if bucket: w_s.append(bucket)
 
-    day = (tem_extra.get("temps") or {}).get(today)
-    if not day:
+    # Today's actual high and low so far (with times): the station's history since midnight,
+    # else WeatherDial's own readings since it started; the live reading can beat either.
+    day = None
+    hist_day = (tem_extra.get("temps") or {}).get(today)
+    if hist_day:
+        day = {"hi": hist_day["hi"], "lo": hist_day["lo"], "hi_at": hist_day.get("hi_at"),
+               "lo_at": hist_day.get("lo_at"), "since": "00:00"}
+    else:
         own_day = load_json(DATA / "wind_max.json", {}).get("today") or {}
         if own_day.get("date") == today and own_day.get("t_hi") is not None:
-            day = {"hi": own_day["t_hi"], "lo": own_day["t_lo"]}
+            day = {"hi": own_day["t_hi"], "lo": own_day["t_lo"], "hi_at": own_day.get("t_hi_at"),
+                   "lo_at": own_day.get("t_lo_at"), "since": own_day.get("since")}
+    temp_now = now.get("temp")
+    if day and temp_now is not None:
+        hm = (now.get("time") or "")[11:16] or None
+        if temp_now > day["hi"]:
+            day["hi"], day["hi_at"] = temp_now, hm
+        if temp_now < day["lo"]:
+            day["lo"], day["lo_at"] = temp_now, hm
+
+    # Change over the last hour: temperature (°F/hr) and pressure (in/hr).
+    def t_at(ago):
+        older = [r for r in th if t - r[0] >= ago]
+        return older[-1][1] if older and t - older[-1][0] <= ago + 1200 else None
+    t1, p1 = t_at(3600), at(3600)
+    t_rate = round(temp_now - t1, 1) if temp_now is not None and t1 is not None else None
+    p_rate = round(float(p_now) - p1, 3) if p_now and p1 is not None else None
+
     p3 = at(3 * 3600)
     if p_now and p3 is not None:   # trend from the full history (also right after a restart)
         diff = float(p_now) - p3
         now["trend"] = "rising" if diff > .03 else "falling" if diff < -.03 else "steady"
     return {"p_hist": sampled, "p_3h": p3, "p_24h": at(24 * 3600),
-            "t_hist": sample(th), "w_hist": w_s,
-            "t_today": {"hi": day["hi"], "lo": day["lo"]} if day else None}
+            "t_hist": sample(th), "w_hist": w_s, "t_rate_1h": t_rate, "p_rate_1h": p_rate,
+            "t_today": day}
 
 
 def track_wind(now, today, now_local, history=None):
@@ -1127,8 +1155,10 @@ def track_wind(now, today, now_local, history=None):
             h, m = map(int, day["last"].split(":"))
             day["gap"] = max(day.get("gap", 0), mins - (h * 60 + m))
         day["last"] = hhmm
-        day["t_hi"] = temp if day.get("t_hi") is None else max(day["t_hi"], temp)
-        day["t_lo"] = temp if day.get("t_lo") is None else min(day["t_lo"], temp)
+        if day.get("t_hi") is None or temp > day["t_hi"]:
+            day["t_hi"], day["t_hi_at"] = temp, hhmm
+        if day.get("t_lo") is None or temp < day["t_lo"]:
+            day["t_lo"], day["t_lo_at"] = temp, hhmm
     log["today"] = day
     save_json(path, log)
     y = log.get("yesterday")

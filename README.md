@@ -15,6 +15,13 @@ forecasters' discussion). Elsewhere everything else still works.
 - **Now:** your own station (Tempest) if you have one, else the nearest official station,
   else the model. Shows wind and gusts, humidity and dew point, pressure and its 3-hour trend,
   rain today, UV and solar, sunrise and sunset, moon, air quality and lightning.
+  - Under the temperature: the **change over the last hour** (▲ red = warming, ▼ blue =
+    cooling) and the feels-like temperature.
+  - **Forecast** high / low for today (the average of all sources) and **So far**: the
+    actual high / low your station has measured since midnight, with the times they
+    happened. Hover for the exact readings.
+  - The Pressure box also shows the **change over the last hour** (e.g. +0.012/hr); hover
+    for the last hour and last 3 hours.
 - **Warnings:** National Weather Service alerts appear as a red banner. Click it to read the
   full alert and what to do.
 - **Next 2 hours** *(AccuWeather MinuteCast, optional)*: e.g. "Rain starting in 6 min", with

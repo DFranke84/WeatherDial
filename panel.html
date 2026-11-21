@@ -63,6 +63,11 @@
   .now .from { color: var(--dim); font-size: 12px; }
   .now .hilo { color: var(--dim); }
   .now .hilo b { color: var(--text); font-weight: 600; }
+  .now .hilo small { color: var(--faint); }
+  .now .hilo .lbl { display: inline-block; min-width: 54px; color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
+  .now .rate { font-size: 12px; font-weight: 600; text-align: center; margin-top: 2px; cursor: help; white-space: nowrap; }
+  .now .feels { font-size: 12px; color: var(--dim); text-align: center; cursor: help; }
+  .now .hilo { white-space: nowrap; }
   .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line);
            border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
   .stat { background: var(--cell); padding: 5px 8px; min-height: 34px; }
@@ -307,10 +312,18 @@ function render() {
     ⚠ <b>${esc(a.event)}</b> <span style="color:var(--alertmore)">until ${clock(a.ends)}</span>
     <div class="more">${esc(a.description)}${a.instruction ? "\n\n" + esc(a.instruction) : ""}</div></div>`).join("");
 
+  const G = D.gauges || {}, act = G.t_today, tr = G.t_rate_1h;
+  const rateTxt = (v, unit, dec) => v == null ? "" : `${v > 0 ? "▲ +" : v < 0 ? "▼ −" : "● "}${Math.abs(v).toFixed(dec)}${unit}`;
+  const rateCol = v => v == null || Math.abs(v) < 0.05 ? "var(--dim)" : v > 0 ? "var(--warm)" : "var(--cold)";
+  const actTip = act ? `Measured by your station today${act.since && act.since !== "00:00" ? ` (since ${hhmm(act.since)}, when WeatherDial started)` : " (since midnight)"}:\n` +
+    `High ${act.hi.toFixed(1)}°F at ${hhmm(act.hi_at) || "–"}, low ${act.lo.toFixed(1)}°F at ${hhmm(act.lo_at) || "–"}.\nThe "Forecast" line above is the average of all sources for the whole day.` : "";
   $("now").innerHTML = `<div>${icon(n.icon, 70, isNight())}</div>
-    <div class="big">${f0(n.temp)}<sup>°F</sup></div>
+    <div><div class="big">${f0(n.temp)}<sup>°F</sup></div>
+      ${tr != null ? `<div class="rate" style="color:${rateCol(tr)}" title="Temperature change over the last hour: ${tr > 0 ? "+" : ""}${tr.toFixed(1)}°F">${rateTxt(tr, "°/hr", 1)}</div>` : ""}
+      <div class="feels" title="Feels like: wind chill when cold and windy, heat index when hot and humid">feels ${f0(n.feels)}°</div></div>
     <div><div class="cond">${esc(n.text || "")}</div>
-      <div class="hilo">High <b>${f0(today.hi)}°</b> · Low <b>${f0(today.lo)}°</b> · Feels <b>${f0(n.feels)}°</b></div>
+      <div class="hilo" title="Forecast high and low for today: the average of all sources"><span class="lbl">Forecast</span> <b>${f0(today.hi)}°</b> / <b>${f0(today.lo)}°</b> <small>high / low</small></div>
+      ${act ? `<div class="hilo" title="${esc(actTip)}"><span class="lbl">So far</span> <b>${f0(act.hi)}°</b> / <b>${f0(act.lo)}°</b> <small>${hhmm(act.hi_at)} / ${hhmm(act.lo_at)}</small></div>` : ""}
       <div class="from">from ${esc(n.station || "–")} · ${n.age_s != null ? (n.age_s < 60 ? n.age_s + " s ago" : ago(n.time)) : ago(n.time)}</div></div>
     <div class="clock"><div class="tm" id="clkT"></div><div class="dt" id="clkD"></div></div>`;
   tick();
@@ -324,7 +337,12 @@ function render() {
   const stats = [
     ["Wind", `${f0(n.wind)} <small>${compass(n.dir)} · gust ${f0(n.gust)}</small>`, "", windTip(n.wind_max)],
     ["Humidity", `${f0(n.rh)}% <small>dew ${f0(n.dew)}°</small>`],
-    ["Pressure", `${n.pressure ? n.pressure.toFixed(2) : "–"} <small>${trendArrow} ${n.trend || "inHg"}</small>`],
+    ["Pressure", `${n.pressure ? n.pressure.toFixed(2) : "–"} <small>${trendArrow} ${n.trend || "inHg"}</small>` +
+      (G.p_rate_1h != null ? ` <small style="color:${rateCol(G.p_rate_1h * 100)}">${G.p_rate_1h >= 0 ? "+" : "−"}${Math.abs(G.p_rate_1h).toFixed(3)}/hr</small>` : ""), "",
+     `Pressure (sea level): ${n.pressure ? (+n.pressure).toFixed(3) : "–"} inHg` +
+      (G.p_rate_1h != null ? `\nChange over the last hour: ${G.p_rate_1h >= 0 ? "+" : ""}${G.p_rate_1h.toFixed(3)} in` : "") +
+      (G.p_3h != null && n.pressure ? `\nOver the last 3 hours: ${(+n.pressure - G.p_3h) >= 0 ? "+" : ""}${(+n.pressure - G.p_3h).toFixed(3)} in (${n.trend || "–"})` : "") +
+      `\nRising usually means improving weather; falling means change on the way.`],
     ["Rain today", `${n.rain_today != null ? n.rain_today.toFixed(2) + '"' : "–"} <small>${n.rain_rate ? "falling now" : ""}</small>`, "",
      n.rain_yesterday != null ? `Rain yesterday: ${(+n.rain_yesterday).toFixed(2)}"` : "Rain yesterday needs the Tempest cloud token"],
     ["UV / sun", `${n.uv ?? sky.uv ?? "–"} <small>${n.solar != null ? Math.round(n.solar) + " W/m²" : ""}</small>`, "extra"],
