@@ -498,6 +498,46 @@ def record_actuals(new):
     save_if_changed(path, act)
 
 
+# ---- hourly forecast vs actual (the dotted line on the 24 h temperature graph)
+HOURLY_FC = VDIR / "hourly_forecast.json"   # {"YYYY-MM-DDTHH:00": temp the panel forecast ~1 day ahead}
+
+
+def record_hourly_forecast(hourly, now_local):
+    """Remember, for each coming hour, the panel's forecast as it stood about a day ahead
+    (the last value seen while that hour was 20 to 28 hours away)."""
+    arc = load_json(HOURLY_FC, {})
+    for row in hourly:
+        lead = (dt.datetime.fromisoformat(row["t"]) - now_local).total_seconds() / 3600
+        if 20 <= lead <= 28 and row.get("temp") is not None:
+            arc[row["t"]] = row["temp"]
+    cutoff = (now_local - dt.timedelta(days=3)).strftime("%Y-%m-%dT%H:00")
+    save_if_changed(HOURLY_FC, {k: v for k, v in arc.items() if k >= cutoff})
+
+
+def src_past_forecast(cfg, keys, clock):
+    """Open-Meteo's archive of past runs: what was forecast a day earlier for each recent hour.
+    Fills the dotted line until WeatherDial has saved a day of its own forecasts."""
+    d = get(f"https://previous-runs-api.open-meteo.com/v1/forecast?latitude={cfg['lat']}&longitude={cfg['lon']}"
+            "&hourly=temperature_2m_previous_day1&past_days=2&forecast_days=1"
+            "&temperature_unit=fahrenheit&timezone=auto")["hourly"]
+    return {"daily": [], "hourly": [],
+            "past_fc": [[t[:13] + ":00", v] for t, v in zip(d["time"], d["temperature_2m_previous_day1"]) if v is not None]}
+
+
+def past_hourly_forecast(past_src, clock):
+    """[[epoch, temp, made_by]] for the last 26 hours: the panel's own day-ahead forecast where
+    saved, else Open-Meteo's."""
+    own = load_json(HOURLY_FC, {})
+    om = dict(past_src.get("past_fc") or [])
+    now = time.time()
+    out = []
+    for key in sorted(set(own) | set(om)):
+        e = (dt.datetime.fromisoformat(key).replace(tzinfo=UTC) - clock.off).timestamp()
+        if 0 <= now - e <= 26 * 3600:
+            out.append([int(e), own[key], "panel"] if key in own else [int(e), om[key], "Open-Meteo"])
+    return out
+
+
 def src_backfill(cfg, keys, clock):
     """Once in a while: fill the accuracy history for the past `accuracy_backfill_days`
     (default 30): the global models' next-day forecasts from Open-Meteo's archive of past
@@ -984,6 +1024,7 @@ SOURCES = [
     ("models", src_openmeteo_models, None, 60, None),
     ("Air quality", src_air, None, 30, None),
     ("Accuracy history", src_backfill, None, 360, None),
+    ("Past forecasts", src_past_forecast, None, 60, None),
     ("Tempest (live, local)", src_local_station, None, 0, None),
     ("Your Tempest", src_tempest, "tempest_token", 5, "https://tempestwx.com/settings/tokens"),
     ("Weather.com", src_weathercom, "weathercom", 30, "https://www.wunderground.com/member/api-keys"),
@@ -1122,8 +1163,16 @@ def gauge_data(now, tem_extra, today):
     if p_now and p3 is not None:   # trend from the full history (also right after a restart)
         diff = float(p_now) - p3
         now["trend"] = "rising" if diff > .03 else "falling" if diff < -.03 else "steady"
+    # temperature every 15 minutes, but always keep the true highest and lowest readings
+    t_s = sample(th)
+    last24 = [r for r in th if t - r[0] <= 24 * 3600]
+    if last24:
+        for r in (max(last24, key=lambda r: r[1]), min(last24, key=lambda r: r[1])):
+            if [int(r[0]), r[1]] not in t_s:
+                t_s.append([int(r[0]), r[1]])
+        t_s.sort()
     return {"p_hist": sampled, "p_3h": p3, "p_24h": at(24 * 3600),
-            "t_hist": sample(th), "w_hist": w_s, "t_rate_1h": t_rate, "p_rate_1h": p_rate,
+            "t_hist": t_s, "w_hist": w_s, "t_rate_1h": t_rate, "p_rate_1h": p_rate,
             "t_today": day}
 
 
@@ -1312,7 +1361,9 @@ def fetch(force=False):
     if readings:
         track_wind(readings[0], today, now_local, tem.get("extra", {}).get("wind_max"))
 
+    record_hourly_forecast(hourly, now_local)
     gauges = gauge_data(readings[0] if readings else {}, tem.get("extra", {}), today)
+    gauges["f_hist"] = past_hourly_forecast(results.get("Past forecasts") or {}, clock)
 
     # Accuracy: remember every source's forecasts; record finished days' actual high/low.
     record_forecasts(fc_daily, today)

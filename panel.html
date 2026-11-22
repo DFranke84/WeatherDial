@@ -805,20 +805,31 @@ function mercuryTubes(n, g) {
 function trendGraphs(n, g) {
   const W = Math.max(320, innerW()), now = Date.now() / 1000, t0 = now - 24 * 3600;
   const chart = (title, rows, series, opts) => {
-    const h = 110, L = 40, Rr = 10, T = 22, B = 18, ih = h - T - B, iw = W - L - Rr;
     const pts = rows.filter(r => r[0] >= t0);
     if (pts.length < 2) return `<div class="gcap">${title}: not enough history yet</div>`;
-    const vals = pts.flatMap(r => series.map(sr => r[sr.i])).filter(v => v != null);
+    const ov = (opts.overlay?.rows || []).filter(r => r[0] >= t0 - 1800);   // dotted comparison line
+    const leg = opts.overlay && ov.length > 1;                               // legend gets its own line
+    const h = leg ? 124 : 110, L = 40, Rr = 10, T = leg ? 36 : 22, B = 18, ih = h - T - B, iw = W - L - Rr;
+    const vals = pts.flatMap(r => series.map(sr => r[sr.i])).concat(ov.map(r => r[1])).filter(v => v != null);
     let lo = Math.min(...vals), hi = Math.max(...vals);
     if (opts.zero) lo = 0;
     const pad = Math.max((hi - lo) * .12, opts.minSpan / 2); lo -= opts.zero ? 0 : pad; hi += pad;
     const X = t => L + (t - t0) / (now - t0) * iw, Y = v => T + ih - (v - lo) / (hi - lo) * ih;
-    let s = `<text x="${L}" y="14" style="fill:var(--text);font:600 12px 'Segoe UI'">${title}</text>
+    let s = `<text x="${L}" y="14" style="fill:var(--text);font:600 12px 'Segoe UI'">${title}</text>` +
+      (leg ? `<g style="cursor:help"><title>${esc(opts.overlay.tip)}</title>
+          <line x1="${L}" x2="${L + 18}" y1="25" y2="25" style="stroke:${series[0].c}" stroke-width="2"/>
+          <text x="${L + 22}" y="28" style="fill:var(--dim);font-size:10px">measured</text>
+          <line x1="${L + 78}" x2="${L + 96}" y1="25" y2="25" style="stroke:${opts.overlay.c}" stroke-width="1.8" stroke-dasharray="2 3"/>
+          <text x="${L + 100}" y="28" style="fill:var(--dim);font-size:10px">${opts.overlay.label} ⓘ</text></g>` : "") + `
       <text x="${W - Rr}" y="14" text-anchor="end" style="fill:var(--dim);font-size:11px">${opts.summary}</text>`;
     for (let k = 0; k <= 4; k++) { const v = lo + (hi - lo) * k / 4, y = Y(v);
       s += `<line x1="${L}" x2="${W - Rr}" y1="${y}" y2="${y}" style="stroke:var(--cgrid)"/><text x="${L - 4}" y="${y + 3}" text-anchor="end" style="fill:var(--faint);font-size:9px">${opts.fmt(v)}</text>`; }
     for (let hAgo = 24; hAgo >= 0; hAgo -= 6) { const x = X(now - hAgo * 3600);
       s += `<line x1="${x}" x2="${x}" y1="${T}" y2="${T + ih}" style="stroke:var(--cgrid)"/><text x="${x}" y="${h - 4}" text-anchor="middle" style="fill:var(--faint);font-size:9px">${hAgo ? new Date((now - hAgo * 3600) * 1000).toLocaleTimeString("en-US", { hour: "numeric" }) : "now"}</text>`; }
+    if (ov.length > 1) {
+      const xs = r => Math.max(L, Math.min(W - Rr, X(r[0])));
+      s += `<path d="M${ov.map(r => `${xs(r).toFixed(1)} ${Y(r[1]).toFixed(1)}`).join("L")}" fill="none" style="stroke:${opts.overlay.c}" stroke-width="1.8" stroke-dasharray="2 3"/>`;
+    }
     for (const sr of series) {
       const p = pts.filter(r => r[sr.i] != null);
       if (sr.bars) s += p.map(r => `<rect x="${X(r[0]) - 1.5}" y="${Y(r[sr.i])}" width="3" height="${T + ih - Y(r[sr.i])}" style="fill:${sr.c}" opacity=".55"/>`).join("");
@@ -834,12 +845,25 @@ function trendGraphs(n, g) {
   const pc = p.length > 1 ? p[p.length - 1][1] - p[0][1] : null;
   const tmin = t.length ? t.reduce((a, r) => r[1] < a[1] ? r : a) : null, tmax = t.length ? t.reduce((a, r) => r[1] > a[1] ? r : a) : null;
   const gmax = w.length ? w.reduce((a, r) => r[2] > a[2] ? r : a) : null;
+  // forecast made a day ahead vs what the station measured
+  const fc = g?.f_hist || [];
+  const fcAt = e => { let best = null; for (const r of fc) if (Math.abs(r[0] - e) <= 2400 && (!best || Math.abs(r[0] - e) < Math.abs(best[0] - e))) best = r; return best; };
+  const pairs = t.filter(r => r[0] >= now - 24 * 3600).map(r => [r, fcAt(r[0])]).filter(([, f]) => f);
+  const miss = pairs.length ? pairs.reduce((a, [r, f]) => a + Math.abs(f[1] - r[1]), 0) / pairs.length : null;
+  const bias = pairs.length ? pairs.reduce((a, [r, f]) => a + (f[1] - r[1]), 0) / pairs.length : null;
+  const fcBy = [...new Set(fc.map(r => r[2]))].map(b => b === "panel" ? "WeatherDial's own forecast line" : "Open-Meteo's archive of past forecasts").join(" and ");
+  const fcTip = `Dotted line: the temperature forecast for each hour about a day ahead (from ${fcBy || "–"}), ` +
+    `compared with what your station actually measured (solid line).` +
+    (miss != null ? `\nOver the last 24 hours it was off by ${miss.toFixed(1)}° on average` +
+      (Math.abs(bias) >= 0.75 ? `, running ${Math.abs(bias).toFixed(1)}° too ${bias > 0 ? "warm" : "cold"}.` : `, with no lean warm or cold.`) : "");
   return chart("Pressure (sea level, in)", p, [{ i: 1, c: "var(--accent)" }],
       { fmt: v => v.toFixed(2), minSpan: .1, tip: r => `${r[1].toFixed(2)} in`,
         summary: pc != null ? `${pc >= 0 ? "+" : ""}${pc.toFixed(2)} in over 24 h · ${{ rising: "↗ rising", falling: "↘ falling", steady: "→ steady" }[n.trend] || ""}` : "" }) +
     chart("Temperature (°F)", t, [{ i: 1, c: "var(--ctemp)" }],
-      { fmt: v => Math.round(v) + "°", minSpan: 4, tip: r => `${r[1].toFixed(1)}°F`,
-        summary: tmin ? `24 h low ${f0(tmin[1])}° · high ${f0(tmax[1])}°` : "",
+      { fmt: v => Math.round(v) + "°", minSpan: 4,
+        tip: r => { const f = fcAt(r[0]); return `${r[1].toFixed(1)}°F measured` + (f ? `, forecast a day ahead ${f[1].toFixed(1)}°F (${f[1] - r[1] >= 0 ? "+" : ""}${(f[1] - r[1]).toFixed(1)}°)` : ""); },
+        overlay: fc.length ? { rows: fc, c: "var(--cfeels)", label: "forecast a day ahead", tip: fcTip } : null,
+        summary: tmin ? `low ${f0(tmin[1])}° · high ${f0(tmax[1])}°${miss != null ? ` · forecast off ${miss.toFixed(1)}° avg` : ""}` : "",
         marks: tmin ? [{ t: tmin[0], v: tmin[1], c: "#2a74c9", title: `Low ${tmin[1]}°F` }, { t: tmax[0], v: tmax[1], c: "#d9443a", title: `High ${tmax[1]}°F` }] : [] }) +
     chart("Wind (mph)", w, [{ i: 2, c: "var(--crainbar)", bars: true }, { i: 1, c: "var(--cwind)" }],
       { fmt: v => Math.round(v), minSpan: 6, zero: true, tip: r => `wind ${f0(r[1])}, gust ${f0(r[2])} mph`,
@@ -910,7 +934,8 @@ const HELP = () => ({
   graphs: `<h3>Reading the trend graphs</h3><ul>
       <li>Each graph shows the <b>last 24 hours</b> from your station, oldest on the left and <b>now</b> on the right.</li>
       <li><b>Pressure</b> (sea level): the line's slope is what matters. Going up means improving; going down means change on the way. A drop of more than about 0.06 in within 3 hours often comes before a storm or strong wind. The summary on the right gives the 24-hour change.</li>
-      <li><b>Temperature</b>: the <span style="color:#2a74c9">blue</span> dot marks the lowest point and the <span style="color:#d9443a">red</span> dot the highest in the last 24 hours.</li>
+      <li><b>Temperature</b>: the solid line is what your station <b>measured</b>; the <span style="color:#2a74c9">blue</span> dot marks the lowest point and the <span style="color:#d9443a">red</span> dot the highest in the last 24 hours.</li>
+      <li>The <b>dotted line</b> is what was <b>forecast a day ahead</b> for each of those hours (WeatherDial's own forecast line once it has saved a day of them; until then Open-Meteo's archive of past forecasts). Where the dotted line sits above the solid one, the forecast was too warm; below, too cold. The summary at the top right gives the average miss.</li>
       <li><b>Wind</b>: the line is the average wind and the bars are the gusts, the strongest in each 15 minutes.</li></ul>
     <p style="color:var(--dim)">Hover anywhere on a graph for the reading at that time.</p>`,
 });

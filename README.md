@@ -55,7 +55,9 @@ forecasters' discussion). Elsewhere everything else still works.
     barometer (inches / mb, 24 h and 3 h ago arrows) and a rain gauge (today's rain, with
     yesterday's total as a dashed line).
   - *24 h graphs*: pressure, temperature (low and high marked) and wind (average line, gust
-    bars) for the last 24 hours. Hover for the reading at any time.
+    bars) for the last 24 hours. The temperature graph also has a **dotted line: the forecast
+    made a day ahead** for each hour, with the average miss at the top right. Hover for the
+    reading (and the forecast) at any time.
   - **ⓘ How to read** opens a short guide for the style shown, including what rising and
     falling pressure usually mean. The gauges grow with the panel when you make it bigger.
 - **Health** *(AccuWeather indices, optional)*: today and the next 4 days for health
