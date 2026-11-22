@@ -22,8 +22,15 @@ forecasters' discussion). Elsewhere everything else still works.
     happened. Hover for the exact readings.
   - The Pressure box also shows the **change over the last hour** (e.g. +0.012/hr); hover
     for the last hour and last 3 hours.
-- **Warnings:** National Weather Service alerts appear as a red banner. Click it to read the
-  full alert and what to do.
+- **Warnings:** National Weather Service alerts for your spot appear as a banner across the
+  top (red for warnings, amber for advisories). Click it to read the full alert and what to do.
+  - **Windows notification** when a *new* alert is issued (bottom-right corner; it never takes
+    focus, so it's safe while gaming). Click it to bring the panel in front for 20 seconds with
+    the alert open. The same alert never notifies twice, even after a restart. Choose which
+    alerts notify you with `alert_notify` (default: moderate and up).
+  - **Tray icon:** a red ⚠ badge while any alert is active; hover the icon for the alert names.
+    Tray menu → **Show weather alerts** brings the panel up with them, and **Test alert
+    notification** shows what a notification looks like.
 - **Next 2 hours** *(AccuWeather MinuteCast, optional)*: e.g. "Rain starting in 6 min", with
   a 2-hour bar (blue rain, white snow, purple ice).
 - **Hourly:** a 48-hour or 7-day chart. It shows the forecast line (the official NWS forecast
@@ -168,6 +175,7 @@ Run `Install.bat` again any time to change your answers (press Enter to keep eac
 | `tempest_udp_port` | Optional, default 50222: the port the Tempest hub broadcasts on. |
 | `index_groups` | Optional. Which AccuWeather indices the Health tab shows, and in which groups, e.g. `{"Health": [21, 30, -14], "Outdoors": [3, 20, 13]}`. Run `python weather.py --indices` to list every index with its number. |
 | `accuracy_backfill_days` | Optional, default 30. How many past days to fill in for the accuracy scores when you first start (the global models' past forecasts from Open-Meteo, and your Tempest's actual highs and lows). |
+| `alert_notify` | Which weather alerts pop up a Windows notification: `"severe"` (only Severe and Extreme, e.g. most warnings), `"moderate"` (default; also most watches and advisories), `"all"` (also minor statements) or `"off"`. Every alert still shows on the panel and the tray icon. |
 | `source_minutes` | Optional. How often a particular source refreshes, overriding the pace in the table below, e.g. `{"AccuWeather": 10}`. Use the name shown in the Sources tab; the minimum is 2. Check that source's daily limit first. AccuWeather, for example, uses 2 requests per refresh, so every 10 minutes is about 288 a day. |
 
 Setup writes this file for you with **every setting listed** (the defaults for the ones it
@@ -193,7 +201,9 @@ to the Tempest settings after restarting WeatherDial.
   and a dark version too.
 - **Right-click** the panel for its menu: Lock position, Compact / Full size, Small / Medium /
   Large, Refresh now, Edit API keys…, Edit location…, Close WeatherDial.
-- **The tray icon** (a sun and cloud) has the same options, plus **Start with Windows**.
+- **The tray icon** (a sun and cloud, with a red ⚠ while a weather alert is active) has the
+  same options, plus **Show weather alerts**, **Test alert notification** and **Start with
+  Windows**.
 - **Updates:** your station is re-read and the panel redrawn every 15 seconds (scrolled tabs keep their place, and the chart doesn't redraw while you hover over it). **Refresh now** won't download the
   same source more than once every 2 minutes.
 
@@ -327,6 +337,10 @@ The **Sources** tab shows how long ago each source was last downloaded.
   Then right-click the tray icon → Close WeatherDial and run `Start.bat`. Until then, "Now"
   comes from the Tempest cloud (with the token) or the nearest airport.
 - **The location is wrong:** run `Install.bat` again and paste the right numbers.
+- **No alert notifications:** check `alert_notify` in `config.json` isn't `"off"`, and that
+  Windows notifications are on (*Settings → System → Notifications*). Focus assist / Do not
+  disturb holds notifications back while you game or present; they wait in the notification
+  centre. Tray menu → **Test alert notification** shows whether they get through.
 - **It closed by itself:** see `weatherdial.log` in the WeatherDial folder.
 - **Starting a second copy** does nothing; only one runs at a time.
 

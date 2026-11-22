@@ -142,7 +142,7 @@ class Server(ThreadingHTTPServer):
 user32 = ctypes.windll.user32
 GWL_EXSTYLE = -20
 WS_EX_TOOLWINDOW, WS_EX_NOACTIVATE, WS_EX_APPWINDOW = 0x80, 0x8000000, 0x40000
-HWND_BOTTOM = 1
+HWND_BOTTOM, HWND_TOPMOST, HWND_NOTOPMOST = 1, -1, -2
 SWP_NOSIZE, SWP_NOMOVE, SWP_NOACTIVATE = 0x1, 0x2, 0x10
 MONITOR_DEFAULTTONULL = 0
 SW_HIDE, SW_SHOWNOACTIVATE = 0, 4
@@ -217,6 +217,8 @@ class Api:
         self._dragging = False
         self._hidden = False
         self._size = (502, 640)
+        self._raised_until = 0      # while > now: the panel is shown in front (after an alert click)
+        self._icons = {}            # tray icons: "normal" and "alert"
 
     # -- saving
     def _save_loop(self):
@@ -296,6 +298,45 @@ class Api:
             make_startup_link(link)
         return link.exists()
 
+    def show_alert(self, seconds=20):
+        """Bring the panel in front of other windows for a while (without taking focus)
+        and open the alert text; then it goes back behind the windows."""
+        if not self._window:
+            return
+        if not (weather.load_json(LATEST, {}) or {}).get("alerts"):
+            self.notify("WeatherDial", "No weather alerts for your area right now.")
+            return
+        self._raised_until = time.time() + seconds
+        user32.SetWindowPos(hwnd_of(self._window), HWND_TOPMOST, 0, 0, 0, 0,
+                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
+        self._window.evaluate_js("openAlerts()")
+
+    def notify(self, title, text):
+        """A Windows notification from the tray icon (never takes focus)."""
+        if not self._tray:
+            return
+        from System import Action
+        from System.Windows.Forms import ToolTipIcon
+        self._window.native.Invoke(Action(lambda: self._tray.ShowBalloonTip(
+            15000, title[:63], text[:255] or " ", ToolTipIcon.Warning)))
+
+    def set_alert_state(self, alerts):
+        """Tray icon: red badge and the alert names while any alert is active."""
+        if not self._tray or not self._icons:
+            return
+        from System import Action
+        names = sorted({a["event"] for a in alerts})
+        tip = ("WeatherDial: " + ", ".join(names)) if names else "WeatherDial"
+
+        def apply():
+            self._tray.Icon = self._icons["alert" if names else "normal"]
+            self._tray.Text = tip[:63]
+        self._window.native.Invoke(Action(apply))
+
+    def test_alert(self):
+        self.notify("Test: Winter Storm Warning until 6:00 AM",
+                    "This is what a weather alert notification looks like. Click it to bring up the panel.")
+
     def quit(self):
         if self._tray:
             self._tray.Visible = False
@@ -325,11 +366,63 @@ class Api:
             time.sleep(2)
             if self._dragging or not self._window:
                 continue
+            if self._raised_until:
+                if time.time() < self._raised_until:
+                    continue                      # showing an alert in front for a moment
+                self._raised_until = 0
+                user32.SetWindowPos(hwnd_of(self._window), HWND_NOTOPMOST, 0, 0, 0, 0,
+                                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
             try:
                 to_desktop_layer(self._window)
                 self._place()
             except Exception:
                 pass   # window closing
+
+
+# ---------------------------------------------------------------- weather alerts
+
+ALERTS_SEEN = weather.DATA / "alerts_seen.json"   # alerts already notified (kept until they expire)
+LEVELS = {"severe": {"Extreme", "Severe"}, "moderate": {"Extreme", "Severe", "Moderate"},
+          "all": {"Extreme", "Severe", "Moderate", "Minor", "Unknown", None}, "off": set()}
+
+
+def alerts_to_notify(alerts, seen, level):
+    """The alerts that should pop up a notification now: not notified before and at or above
+    the chosen level. Returns (to_notify, seen updated with them, expired ones dropped)."""
+    now = time.time()
+    keep = {k: v for k, v in seen.items() if v > now}       # forget alerts that have ended
+    out = []
+    for a in alerts:
+        key = a.get("id") or f"{a['event']}|{a.get('ends')}"
+        try:
+            ends = weather.dt.datetime.fromisoformat(a["ends"]).timestamp() if a.get("ends") else now + 86400
+        except ValueError:
+            ends = now + 86400
+        if key not in keep and a.get("severity") in LEVELS.get(level, LEVELS["moderate"]):
+            out.append(a)
+        keep.setdefault(key, max(ends, now + 3600))          # remember every active alert
+    return out, keep
+
+
+def alert_loop(api):
+    """Every 30 s: tray icon shows whether alerts are active; new ones pop up a notification."""
+    while True:
+        try:
+            alerts = (weather.load_json(LATEST, {}) or {}).get("alerts") or []
+            api.set_alert_state(alerts)
+            level = (weather.load_json(HERE / "config.json", {}) or {}).get("alert_notify", "moderate")
+            new, seen = alerts_to_notify(alerts, weather.load_json(ALERTS_SEEN, {}) or {}, level)
+            weather.save_json(ALERTS_SEEN, seen)
+            for a in new:
+                until = ""
+                if a.get("ends"):
+                    until = " until " + weather.dt.datetime.fromisoformat(a["ends"]).strftime("%a %I:%M %p").replace(" 0", " ")
+                note("weather alert:", a["event"], until)
+                api.notify(f"⚠ {a['event']}{until}", (a.get("headline") or a.get("description") or "")
+                           + "\nClick to see it on the panel.")
+        except Exception:
+            note("alert check failed:\n" + traceback.format_exc())
+        time.sleep(30)
 
 
 def startup_link():
@@ -351,7 +444,7 @@ def tray_icon(api):
     from System.Drawing import Bitmap, Color, Graphics, Icon, Pen, SolidBrush
     from System.Windows.Forms import ContextMenuStrip, NotifyIcon, ToolStripMenuItem, ToolStripSeparator
 
-    def draw():   # a small sun behind a cloud
+    def draw(alert=False):   # a small sun behind a cloud
         bmp = Bitmap(32, 32)
         g = Graphics.FromImage(bmp)
         g.SmoothingMode = Drawing2D.SmoothingMode.AntiAlias
@@ -361,6 +454,15 @@ def tray_icon(api):
         g.FillEllipse(cloud, 9, 9, 16, 16)
         g.FillEllipse(cloud, 17, 15, 13, 13)
         g.FillRectangle(cloud, 9, 21, 15, 8)
+        if alert:   # red warning triangle in the corner while an alert is active
+            from System.Drawing import Point, Font, FontStyle, StringFormat, StringAlignment, RectangleF
+            from System import Array
+            g.FillPolygon(SolidBrush(Color.FromArgb(220, 40, 30)),
+                          Array[Point]([Point(16, 31), Point(31, 31), Point(23, 15)]))
+            fmt = StringFormat()
+            fmt.Alignment = fmt.LineAlignment = StringAlignment.Center
+            g.DrawString("!", Font("Segoe UI", 9, FontStyle.Bold), SolidBrush(Color.White),
+                         RectangleF(16, 17, 15, 15), fmt)
         g.Dispose()
         return Icon.FromHandle(bmp.GetHicon())
 
@@ -369,7 +471,10 @@ def tray_icon(api):
 
     def create():
         menu = ContextMenuStrip()
-        for text, fn in [("Refresh now", api.refresh_now),
+        for text, fn in [("Show weather alerts", api.show_alert),
+                         ("Test alert notification", api.test_alert),
+                         (None, None),
+                         ("Refresh now", api.refresh_now),
                          ("Lock position", lambda: api.set_locked_all(True)),
                          ("Unlock position", lambda: api.set_locked_all(False)),
                          (None, None),
@@ -391,9 +496,11 @@ def tray_icon(api):
         menu.Items.Add(ToolStripSeparator())
         menu.Items.Add("Close WeatherDial").Click += later(api.quit)
         tray = NotifyIcon()
-        tray.Icon = draw()
+        api._icons = {"normal": draw(), "alert": draw(True)}
+        tray.Icon = api._icons["normal"]
         tray.Text = "WeatherDial"
         tray.ContextMenuStrip = menu
+        tray.BalloonTipClicked += later(api.show_alert)   # click the notification: show the panel
         tray.Visible = True
         api._tray = tray
 
@@ -417,6 +524,7 @@ def run_window():
         api._place()
         tray_icon(api)
         threading.Thread(target=api._watch, daemon=True).start()
+        threading.Thread(target=alert_loop, args=(api,), daemon=True).start()
 
     w.events.shown += on_shown
     threading.Thread(target=api._save_loop, daemon=True).start()

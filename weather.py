@@ -324,9 +324,10 @@ def src_nws(cfg, keys, clock):
     alerts = []
     for f in al.get("features", []):
         a = f["properties"]
-        alerts.append({"event": a["event"], "severity": a.get("severity"), "headline": a.get("headline"),
-                       "description": a.get("description"), "instruction": a.get("instruction"),
-                       "ends": a.get("ends") or a.get("expires"), "source": "NWS"})
+        alerts.append({"id": a.get("id") or f.get("id"), "event": a["event"], "severity": a.get("severity"),
+                       "headline": a.get("headline"), "description": a.get("description"),
+                       "instruction": a.get("instruction"), "ends": a.get("ends") or a.get("expires"),
+                       "source": "NWS"})
 
     # Latest observation from the nearest station that has a recent temperature.
     now = None
@@ -877,6 +878,10 @@ CONFIG_SETTINGS = [
                            "Check that source's daily limit first."),
     ("accuracy_backfill_days", 30, "How many past days to fill in for the accuracy scores (global models' "
                                    "past forecasts and your Tempest's actual highs and lows)."),
+    ("alert_notify", "moderate", "Which National Weather Service alerts pop up a Windows notification: "
+                                 "\"severe\" (only Severe and Extreme, e.g. most warnings), \"moderate\" (also most "
+                                 "watches and advisories), \"all\" (also minor statements), or \"off\". "
+                                 "Every alert still shows on the panel and the tray icon either way."),
     ("index_groups", INDEX_GROUPS, "Which AccuWeather health & lifestyle indices the Health tab shows, by "
                                    "number, in groups. List all numbers: python weather.py --indices"),
 ]

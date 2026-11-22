@@ -1074,6 +1074,8 @@ function setLocked(on) {
   $("mLock").textContent = on ? "Unlock position" : "Lock position";
 }
 function setZoom(z) { document.body.style.zoom = z; }
+// Called by the app when you click a weather-alert notification: open the alert text.
+function openAlerts() { document.querySelectorAll(".alert").forEach(a => a.classList.add("open")); }
 
 // Theme: "dark", "light" or "auto" (follows Windows' light/dark app setting).
 let theme = "dark";
