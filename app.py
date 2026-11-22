@@ -33,7 +33,11 @@ fetch_lock = threading.Lock()
 
 
 def note(*msg):
-    print(time.strftime("%Y-%m-%d %H:%M:%S"), *msg, flush=True)
+    line = " ".join([time.strftime("%Y-%m-%d %H:%M:%S"), *map(str, msg)])
+    try:
+        print(line, flush=True)
+    except UnicodeEncodeError:   # a console that can't show ⚡ / ⚠ must never stop the app
+        print(line.encode("ascii", "replace").decode(), flush=True)
 
 
 # ---------------------------------------------------------------- data
@@ -218,6 +222,7 @@ class Api:
         self._hidden = False
         self._size = (502, 640)
         self._raised_until = 0      # while > now: the panel is shown in front (after an alert click)
+        self._lightning = None      # "Lightning 6 mi" while strikes were close in the last 30 min
         self._icons = {}            # tray icons: "normal" and "alert"
 
     # -- saving
@@ -303,8 +308,8 @@ class Api:
         and open the alert text; then it goes back behind the windows."""
         if not self._window:
             return
-        if not (weather.load_json(LATEST, {}) or {}).get("alerts"):
-            self.notify("WeatherDial", "No weather alerts for your area right now.")
+        if not (weather.load_json(LATEST, {}) or {}).get("alerts") and not self._lightning:
+            self.notify("WeatherDial", "No weather alerts or nearby lightning right now.")
             return
         self._raised_until = time.time() + seconds
         user32.SetWindowPos(hwnd_of(self._window), HWND_TOPMOST, 0, 0, 0, 0,
@@ -320,13 +325,19 @@ class Api:
         self._window.native.Invoke(Action(lambda: self._tray.ShowBalloonTip(
             15000, title[:63], text[:255] or " ", ToolTipIcon.Warning)))
 
-    def set_alert_state(self, alerts):
-        """Tray icon: red badge and the alert names while any alert is active."""
+    def set_alert_state(self, alerts, lightning=None):
+        """Tray icon: red badge, with the alert names (and nearby lightning) in its tooltip,
+        while any alert is active or lightning was close in the last 30 minutes."""
+        self._lightning = lightning
         if not self._tray or not self._icons:
             return
         from System import Action
-        names = sorted({a["event"] for a in alerts})
+        names = sorted({a["event"] for a in alerts}) + ([lightning] if lightning else [])
         tip = ("WeatherDial: " + ", ".join(names)) if names else "WeatherDial"
+        state = (bool(names), tip[:63])
+        if state == getattr(self, "_tray_state", None):
+            return
+        self._tray_state = state
 
         def apply():
             self._tray.Icon = self._icons["alert" if names else "normal"]
@@ -404,13 +415,67 @@ def alerts_to_notify(alerts, seen, level):
     return out, keep
 
 
+LIGHTNING_SEEN = weather.DATA / "lightning_seen.json"
+
+
+def recent_strikes(latest):
+    """[(epoch, miles)] of known lightning strikes: every strike the hub broadcast (last 3 h),
+    plus the last strike from Weather Display / the Tempest cloud."""
+    out = []
+    udp = weather.load_json(weather.UDP_FILE, {}) or {}
+    for e, km, *_ in udp.get("strikes") or []:
+        out.append((e, km * 0.621371))
+    n = (latest or {}).get("now") or {}
+    if n.get("strike_time") and n.get("strike_dist") is not None:
+        out.append((n["strike_time"], float(n["strike_dist"])))
+    return sorted(set(out))
+
+
+def lightning_to_notify(strikes, state, miles, quiet_min, now=None):
+    """Decide whether nearby lightning should pop up a notification.
+    strikes: [(epoch, miles)]. Returns (message or None, tray text or None, new state)."""
+    now = now or time.time()
+    state = dict(state or {})
+    if not miles:
+        return None, None, state
+    near15 = [s for s in strikes if now - s[0] <= 15 * 60 and s[1] <= miles]
+    near30 = [s for s in strikes if now - s[0] <= 30 * 60 and s[1] <= miles]
+    tray = f"Lightning {min(d for _, d in near30):.0f} mi" if near30 else None
+    newest = max((e for e, _ in near15), default=0)
+    if not near15 or newest <= state.get("last_strike", 0):
+        return None, tray, state                        # nothing new
+    closest = min(d for _, d in near15)
+    quiet = now - state.get("last_notify", 0) < quiet_min * 60
+    closer = closest <= state.get("last_dist", 1e9) / 2   # a storm coming in: say so again
+    state["last_strike"] = newest
+    if quiet and not closer:
+        return None, tray, state
+    state.update(last_notify=now, last_dist=closest)
+    mins = max(1, round((now - newest) / 60))
+    count = len(near15)
+    msg = (f"⚡ Lightning {closest:.0f} mi away",
+           f"{count} strike{'s' if count != 1 else ''} within {miles:g} mi in the last 15 min; "
+           f"latest {mins} min ago. Head indoors if you're outside.")
+    return msg, tray, state
+
+
 def alert_loop(api):
-    """Every 30 s: tray icon shows whether alerts are active; new ones pop up a notification."""
+    """Every 10 s: tray icon shows whether alerts are active or lightning is near; new alerts
+    and nearby lightning pop up a notification."""
     while True:
         try:
-            alerts = (weather.load_json(LATEST, {}) or {}).get("alerts") or []
-            api.set_alert_state(alerts)
-            level = (weather.load_json(HERE / "config.json", {}) or {}).get("alert_notify", "moderate")
+            latest = weather.load_json(LATEST, {}) or {}
+            cfg = weather.load_json(HERE / "config.json", {}) or {}
+            alerts = latest.get("alerts") or []
+            msg, tray, lstate = lightning_to_notify(
+                recent_strikes(latest), weather.load_json(LIGHTNING_SEEN, {}),
+                float(cfg.get("lightning_notify_miles", 10) or 0), float(cfg.get("lightning_quiet_minutes", 30)))
+            weather.save_json(LIGHTNING_SEEN, lstate)
+            api.set_alert_state(alerts, tray)
+            if msg:
+                note("lightning:", msg[0])
+                api.notify(*msg)
+            level = cfg.get("alert_notify", "moderate")
             new, seen = alerts_to_notify(alerts, weather.load_json(ALERTS_SEEN, {}) or {}, level)
             weather.save_json(ALERTS_SEEN, seen)
             for a in new:
@@ -422,7 +487,7 @@ def alert_loop(api):
                            + "\nClick to see it on the panel.")
         except Exception:
             note("alert check failed:\n" + traceback.format_exc())
-        time.sleep(30)
+        time.sleep(10)
 
 
 def startup_link():

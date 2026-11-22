@@ -28,7 +28,14 @@ forecasters' discussion). Elsewhere everything else still works.
     focus, so it's safe while gaming). Click it to bring the panel in front for 20 seconds with
     the alert open. The same alert never notifies twice, even after a restart. Choose which
     alerts notify you with `alert_notify` (default: moderate and up).
-  - **Tray icon:** a red ⚠ badge while any alert is active; hover the icon for the alert names.
+  - **Lightning nearby** (Tempest): a notification when your station detects lightning within
+    `lightning_notify_miles` (default 10 mi) in the last 15 minutes, e.g. "⚡ Lightning 6 mi
+    away: 3 strikes within 10 mi in the last 15 min". During a storm it then stays quiet for
+    `lightning_quiet_minutes` (default 30), unless strikes come within half the distance.
+    Instant with the hub listener; with Weather Display it comes from the Tempest cloud (needs
+    the token), checked every 5 minutes.
+  - **Tray icon:** a red ⚠ badge while any alert is active or lightning was near in the last 30
+    minutes; hover the icon for the alert names and the lightning distance.
     Tray menu → **Show weather alerts** brings the panel up with them, and **Test alert
     notification** shows what a notification looks like.
 - **Next 2 hours** *(AccuWeather MinuteCast, optional)*: e.g. "Rain starting in 6 min", with
@@ -176,6 +183,8 @@ Run `Install.bat` again any time to change your answers (press Enter to keep eac
 | `index_groups` | Optional. Which AccuWeather indices the Health tab shows, and in which groups, e.g. `{"Health": [21, 30, -14], "Outdoors": [3, 20, 13]}`. Run `python weather.py --indices` to list every index with its number. |
 | `accuracy_backfill_days` | Optional, default 30. How many past days to fill in for the accuracy scores when you first start (the global models' past forecasts from Open-Meteo, and your Tempest's actual highs and lows). |
 | `alert_notify` | Which weather alerts pop up a Windows notification: `"severe"` (only Severe and Extreme, e.g. most warnings), `"moderate"` (default; also most watches and advisories), `"all"` (also minor statements) or `"off"`. Every alert still shows on the panel and the tray icon. |
+| `lightning_notify_miles` | Notify when your Tempest detects lightning within this many miles (default 10). `0` = off. |
+| `lightning_quiet_minutes` | After a lightning notification, wait this long before the next one (default 30), unless strikes come within half the distance. |
 | `source_minutes` | Optional. How often a particular source refreshes, overriding the pace in the table below, e.g. `{"AccuWeather": 10}`. Use the name shown in the Sources tab; the minimum is 2. Check that source's daily limit first. AccuWeather, for example, uses 2 requests per refresh, so every 10 minutes is about 288 a day. |
 
 Setup writes this file for you with **every setting listed** (the defaults for the ones it

@@ -882,6 +882,10 @@ CONFIG_SETTINGS = [
                                  "\"severe\" (only Severe and Extreme, e.g. most warnings), \"moderate\" (also most "
                                  "watches and advisories), \"all\" (also minor statements), or \"off\". "
                                  "Every alert still shows on the panel and the tray icon either way."),
+    ("lightning_notify_miles", 10, "Pop up a notification when your Tempest detects lightning within this "
+                                   "many miles (in the last 15 minutes). 0 = off."),
+    ("lightning_quiet_minutes", 30, "After a lightning notification, wait this many minutes before the next "
+                                    "one (sooner only if strikes come within half the distance)."),
     ("index_groups", INDEX_GROUPS, "Which AccuWeather health & lifestyle indices the Health tab shows, by "
                                    "number, in groups. List all numbers: python weather.py --indices"),
 ]
