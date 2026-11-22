@@ -20,6 +20,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 DATA = HERE / "data"
+HIST_HOURS = 72                  # the Gauges tab's longest graphs
+HIST_KEEP = (HIST_HOURS + 2) * 3600
 CACHE = DATA / "cache"
 UA = "WeatherDial/0.1 (personal desktop weather widget)"
 UTC = dt.timezone.utc
@@ -403,6 +405,7 @@ def src_tempest(cfg, keys, clock):
     if device:
         midnight = clock.from_epoch(time.time()).replace(hour=0, minute=0, second=0, microsecond=0)
         start = int(time.time() - (clock.from_epoch(time.time()) - midnight).total_seconds()) - 86400
+        start = min(start, int(time.time()) - HIST_HOURS * 3600)   # also the 72 h graphs
         h = get(f"https://swd.weatherflow.com/swd/rest/observations/device/{device}"
                 f"?time_start={start}&time_end={int(time.time())}&token={urllib.parse.quote(tok)}")
         wind_max = wind_from_obs(h.get("obs") or [], clock)
@@ -509,9 +512,12 @@ def record_hourly_forecast(hourly, now_local):
     arc = load_json(HOURLY_FC, {})
     for row in hourly:
         lead = (dt.datetime.fromisoformat(row["t"]) - now_local).total_seconds() / 3600
-        if 20 <= lead <= 28 and row.get("temp") is not None:
-            arc[row["t"]] = row["temp"]
-    cutoff = (now_local - dt.timedelta(days=3)).strftime("%Y-%m-%dT%H:00")
+        # the average of all sources, like the panel's line (the panel also weights it by accuracy)
+        vals = [v for v in (row.get("by") or {}).values() if v is not None]
+        temp = round(sum(vals) / len(vals), 1) if vals else row.get("temp")
+        if 20 <= lead <= 28 and temp is not None:
+            arc[row["t"]] = temp
+    cutoff = (now_local - dt.timedelta(days=4)).strftime("%Y-%m-%dT%H:00")
     save_if_changed(HOURLY_FC, {k: v for k, v in arc.items() if k >= cutoff})
 
 
@@ -519,14 +525,14 @@ def src_past_forecast(cfg, keys, clock):
     """Open-Meteo's archive of past runs: what was forecast a day earlier for each recent hour.
     Fills the dotted line until WeatherDial has saved a day of its own forecasts."""
     d = get(f"https://previous-runs-api.open-meteo.com/v1/forecast?latitude={cfg['lat']}&longitude={cfg['lon']}"
-            "&hourly=temperature_2m_previous_day1&past_days=2&forecast_days=1"
+            "&hourly=temperature_2m_previous_day1&past_days=4&forecast_days=1"
             "&temperature_unit=fahrenheit&timezone=auto")["hourly"]
     return {"daily": [], "hourly": [],
             "past_fc": [[t[:13] + ":00", v] for t, v in zip(d["time"], d["temperature_2m_previous_day1"]) if v is not None]}
 
 
 def past_hourly_forecast(past_src, clock):
-    """[[epoch, temp, made_by]] for the last 26 hours: the panel's own day-ahead forecast where
+    """[[epoch, temp, made_by]] for the last 74 hours: the panel's own day-ahead forecast where
     saved, else Open-Meteo's."""
     own = load_json(HOURLY_FC, {})
     om = dict(past_src.get("past_fc") or [])
@@ -534,7 +540,7 @@ def past_hourly_forecast(past_src, clock):
     out = []
     for key in sorted(set(own) | set(om)):
         e = (dt.datetime.fromisoformat(key).replace(tzinfo=UTC) - clock.off).timestamp()
-        if 0 <= now - e <= 26 * 3600:
+        if 0 <= now - e <= HIST_KEEP:
             out.append([int(e), own[key], "panel"] if key in own else [int(e), om[key], "Open-Meteo"])
     return out
 
@@ -696,11 +702,11 @@ def src_local_station(cfg, keys, clock):
             r, why = None, f"{via}: last reading {round(age / 60)} min ago"
     if not r:
         return {"daily": [], "hourly": [], "now": None, "note": why}
-    # Pressure log (last 26 hours, a point every 5 minutes) for the trend and the gauges.
+    # Pressure log (last 74 hours, a point every 5 minutes) for the trend and the gauges.
     plog = load_json(DATA / "pressure_log.json", [])
     now_t = time.time()
     if r["pressure"] is not None:
-        plog = [p for p in plog if now_t - p[0] < 26 * 3600]
+        plog = [p for p in plog if now_t - p[0] < HIST_KEEP]
         if len(plog) >= 2 and now_t - plog[-2][0] < 300:
             plog[-1] = [now_t, r["pressure"]]          # keep the newest value, a point per 5 min
         else:
@@ -1094,8 +1100,8 @@ def gauge_data(now, tem_extra, today):
     if tp and p_now:
         # Tempest history is station pressure; shift it to sea level using the live reading.
         offset = float(p_now) - tp[-1][1] * 0.0295300
-        hist = [[e, round(mb * 0.0295300 + offset, 3)] for e, mb in tp if t - e <= 26 * 3600]
-    own = [p for p in load_json(DATA / "pressure_log.json", []) if t - p[0] <= 26 * 3600]
+        hist = [[e, round(mb * 0.0295300 + offset, 3)] for e, mb in tp if t - e <= HIST_KEEP]
+    own = [p for p in load_json(DATA / "pressure_log.json", []) if t - p[0] <= HIST_KEEP]
     if hist:
         hist += [p for p in own if p[0] > hist[-1][0]]
     else:
@@ -1116,12 +1122,12 @@ def gauge_data(now, tem_extra, today):
     # Temperature and wind for the trend graphs: Tempest history, else our own 5-minute log
     # of whatever station supplies "now" (kept 26 hours).
     hpath = DATA / "hist_log.json"
-    hl = [r for r in load_json(hpath, []) if t - r[0] <= 26 * 3600]
+    hl = [r for r in load_json(hpath, []) if t - r[0] <= HIST_KEEP]
     if now.get("temp") is not None and (not hl or t - hl[-1][0] >= 300):
         hl.append([t, now.get("temp"), now.get("wind"), now.get("gust")])
         save_json(hpath, hl)
-    th = [r for r in tem_extra.get("t_hist") or [] if t - r[0] <= 26 * 3600]
-    wh = [r for r in tem_extra.get("w_hist") or [] if t - r[0] <= 26 * 3600]
+    th = [r for r in tem_extra.get("t_hist") or [] if t - r[0] <= HIST_KEEP]
+    wh = [r for r in tem_extra.get("w_hist") or [] if t - r[0] <= HIST_KEEP]
     if th:
         th += [[r[0], r[1]] for r in hl if r[0] > th[-1][0]]
     else:
@@ -1174,12 +1180,12 @@ def gauge_data(now, tem_extra, today):
         now["trend"] = "rising" if diff > .03 else "falling" if diff < -.03 else "steady"
     # temperature every 15 minutes, but always keep the true highest and lowest readings
     t_s = sample(th)
-    last24 = [r for r in th if t - r[0] <= 24 * 3600]
-    if last24:
-        for r in (max(last24, key=lambda r: r[1]), min(last24, key=lambda r: r[1])):
+    for hours in (24, HIST_HOURS):        # the 24 h and 72 h graphs each show their own extremes
+        last = [r for r in th if t - r[0] <= hours * 3600]
+        for r in (max(last, key=lambda r: r[1]), min(last, key=lambda r: r[1])) if last else ():
             if [int(r[0]), r[1]] not in t_s:
                 t_s.append([int(r[0]), r[1]])
-        t_s.sort()
+    t_s.sort()
     return {"p_hist": sampled, "p_3h": p3, "p_24h": at(24 * 3600),
             "t_hist": t_s, "w_hist": w_s, "t_rate_1h": t_rate, "p_rate_1h": p_rate,
             "t_today": day}
@@ -1339,6 +1345,7 @@ def fetch(force=False):
     hourly = []
     for h in detail_h:
         row = dict(h)
+        row["temp_model"] = row["temp"]     # Open-Meteo's own value; the panel shifts feels-like with it
         row["by"] = {name: m[h["t"]]["temp"] for name, m in by_hour.items() if h["t"] in m}
         nh = by_hour.get("NWS (official)", {}).get(h["t"])
         if nh:     # official forecast leads where it exists

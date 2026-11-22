@@ -40,13 +40,13 @@ forecasters' discussion). Elsewhere everything else still works.
     notification** shows what a notification looks like.
 - **Next 2 hours** *(AccuWeather MinuteCast, optional)*: e.g. "Rain starting in 6 min", with
   a 2-hour bar (blue rain, white snow, purple ice).
-- **Hourly:** a 48-hour or 7-day chart. It shows the forecast line (the official NWS forecast
-  where it has one), a shaded band for the range of all sources, feels-like (dotted),
+- **Hourly:** a 48-hour or 7-day chart. It shows the forecast line (the average of every source,
+  weighted by accuracy, and starting from your station's actual reading), a shaded band for the range of all sources, feels-like (dotted),
   chance of rain or snow (blue bars for rain, white for snow), wind, night shading and the
   freezing line. A blue **now** line (with a dot on the temperature line) marks the current
   moment.
 - **16-Day:** the average of all sources for each day (weighted by accuracy, see below), with a coloured dot for how well they
-  agree.
+  agree. Hover a day's bar for what the bar, its colours and the end ticks mean.
 - **Compare:** every source's highs and lows side by side, plus the current readings from
   your station, the nearest airport and the model.
 - **Accuracy** (Compare and Sources): a badge per source showing how close its next-day
@@ -55,7 +55,7 @@ forecasters' discussion). Elsewhere everything else still works.
 - **Radar:** an animated loop of the last 80 minutes, starting on the newest frame.
   ⏸ Pause / ▶ Play, ◀ ▶ to step one frame at a time, **Latest** to jump to the newest frame
   (pausing is remembered).
-- **Gauges:** your station as instruments, in four styles (your choice is remembered):
+- **Gauges:** your station as instruments, in five styles (your choice is remembered):
   - *Barometer*: laid out like the classic Rainmeter "WeatherStation" barometer. A white
     aneroid face with *Stormy, Rain, Change, Fair, Very Dry* in Old English lettering,
     29 / 30 / 31 inches with half-inch "5"s, a millibar ring, and the "falling denotes
@@ -72,6 +72,9 @@ forecasters' discussion). Elsewhere everything else still works.
     bars) for the last 24 hours. The temperature graph also has a **dotted line: the forecast
     made a day ahead** for each hour, with the average miss at the top right. Hover for the
     reading (and the forecast) at any time.
+  - *72 h*: the same three graphs over the last 3 days, for slow pressure falls and warming
+    or cooling trends. Needs the Tempest token for the full 3 days at once; otherwise it fills
+    in from WeatherDial's own readings while it runs.
   - **ⓘ How to read** opens a short guide for the style shown, including what rising and
     falling pressure usually mean. The gauges grow with the panel when you make it bigger.
 - **Health** *(AccuWeather indices, optional)*: today and the next 4 days for health
@@ -104,7 +107,7 @@ forecasters' discussion). Elsewhere everything else still works.
 |---|---|---|
 | ![Barometer](docs/screenshots/gauges-classic-big.png) | ![Dials](docs/screenshots/gauges-light.png) | ![Help](docs/screenshots/gauges-help.png) |
 
-| Gauges: Tubes | Gauges: 24 h graphs |
+| Gauges: Tubes | Gauges: 72 h graphs |
 |---|---|
 | ![Tubes](docs/screenshots/gauges-tubes.png) | ![Graphs](docs/screenshots/gauges-graphs.png) |
 
@@ -229,7 +232,7 @@ forecast in the average.
 | RainViewer + Esri map | none | Radar | when you open the Radar tab |
 | Your Tempest hub (home network) | none | Your station live: temperature, humidity, wind, pressure, rain, UV, lightning | every 15 s (the hub sends every 3 s to 1 min) |
 | Weather Display (instead of the hub) | none | The same, read from Weather Display's `sentwurapiddata.txt` | every 15 s |
-| Tempest cloud | `tempest_token`: tempestwx.com → Settings → Data Authorizations → Create Token | Lightning, yesterday's rain, the last 24 hours, Tempest's own 10-day and hourly forecast. Also the live readings if the hub can't be heard (every 5 min). | every 5 min |
+| Tempest cloud | `tempest_token`: tempestwx.com → Settings → Data Authorizations → Create Token | Lightning, yesterday's rain, the last 72 hours, Tempest's own 10-day and hourly forecast. Also the live readings if the hub can't be heard (every 5 min). | every 5 min |
 | Weather.com | `weathercom`: free for Weather Underground station owners, at wunderground.com/member/api-keys | weather.com's 5-day forecast (this key doesn't include hourly or 7/10-day) | every 30 min |
 | AccuWeather | `accuweather`: developer.accuweather.com (free trial, then paid plans) | 15-day and up to 120-hour forecast, depending on your plan (it checks once a day what the plan allows, so an upgrade is picked up automatically) | every 60 min (2 requests each, ~48 a day). The trial allows 500 a day and paid plans more, so set `source_minutes` to refresh it faster. |
 | AccuWeather MinuteCast | same `accuweather` key; in the trial, then a paid add-on | Rain or snow minute by minute for the next 2 hours. Hidden if your plan doesn't include it. | every 30 min (~48 a day; the trial allows 50) |
@@ -273,8 +276,14 @@ Underground. Weather Display can do that upload for you.
 - **Compare colours:** each cell is high/low. A **red** number is 4° or more **warmer** than
   that day's average; a **blue** one is 4° or more **colder**. White is within 4°.
 - **Spread (highs):** the warmest minus the coldest high for that day.
-- **Hourly line:** the NWS hourly forecast where it has one (about 6 days), then Open-Meteo's
-  blend. The shaded band is the range of all sources for that hour.
+- **Hourly line:** for each hour, the average of every source's forecast, weighted by accuracy
+  like the 16-Day highs and lows (plain average when the Compare switch is off). Near now the
+  line starts at your station's actual reading and blends back into the forecast over the next
+  6 hours, so a source that's running warm or cold this morning doesn't pull the line away from
+  reality. Hover an hour to see the average and how far it was moved. Sky, icons and rain
+  chances still follow the NWS hourly forecast where it has one (about 6 days), then
+  Open-Meteo's blend. The shaded band is the range of all sources for that hour; the dotted
+  forecast-vs-actual line on the Gauges tab records this average as it stood a day ahead.
 
 ## How accuracy is scored
 

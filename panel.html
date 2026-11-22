@@ -110,7 +110,8 @@
   .day .txt { color: var(--dim); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .day .pop { color: var(--rain); text-align: right; }
   .day .lo { color: var(--cold); text-align: right; } .day .hi { color: var(--warm); }
-  .bar { position: relative; height: 6px; background: var(--track); border-radius: 3px; }
+  .bar { position: relative; height: 6px; background: var(--track); border-radius: 3px; cursor: help; }
+  .bar::before { content: ""; position: absolute; inset: -9px 0; }   /* a taller area for the tooltip */
   .bar .rng { position: absolute; top: 0; height: 6px; border-radius: 3px; }
   .bar .sp { position: absolute; top: -3px; height: 12px; border-left: 1px solid var(--mark); border-right: 1px solid var(--mark); }
   .dot { width: 8px; height: 8px; border-radius: 50%; }
@@ -443,13 +444,16 @@ function renderHourly(force) {
   }
   s += `<line id="cur" y1="${top - 8}" y2="${bot - 18}" style="stroke:var(--ccur)" visibility="hidden"/>`;
   $("t-hourly").innerHTML = `<div><span class="seg" id="span"><span data-h="48" class="${hourSpan === 48 ? "on" : ""}">48 hours</span><span data-h="168" class="${hourSpan === 168 ? "on" : ""}">7 days</span></span>
-    <span class="legend"><i style="background:var(--ctemp)"></i>forecast<i style="height:0;border-top:2px dotted var(--cfeels)" title="Wind chill when cold and windy, heat index when hot and humid; otherwise the same as the temperature"></i><span title="Wind chill when cold and windy, heat index when hot and humid; otherwise the same as the temperature">feels like</span><i style="background:var(--cband);height:8px"></i><span title="The shaded band: the lowest to highest temperature any source forecasts for that hour">range</span><i style="background:var(--crainbar);height:8px"></i><span title="Bars: chance of rain or snow (white bars = snow)">rain/snow %</span></span></div>
+    <span class="legend"><i style="background:var(--ctemp)"></i><span title="${esc(LINE_EXPLAIN)}">forecast</span><i style="height:0;border-top:2px dotted var(--cfeels)" title="Wind chill when cold and windy, heat index when hot and humid; otherwise the same as the temperature"></i><span title="Wind chill when cold and windy, heat index when hot and humid; otherwise the same as the temperature">feels like</span><i style="background:var(--cband);height:8px"></i><span title="The shaded band: the lowest to highest temperature any source forecasts for that hour">range</span><i style="background:var(--crainbar);height:8px"></i><span title="Bars: chance of rain or snow (white bars = snow)">rain/snow %</span></span></div>
     <svg id="hsvg" width="${W}" height="${bot}">${s}</svg>`;
   const svg = $("hsvg"), tip = $("tip");
   svg.onmousemove = e => {
     const r = svg.getBoundingClientRect(), i = Math.max(0, Math.min(H.length - 1, Math.round((e.clientX - r.left - 30) / ((W - 44) / (H.length - 1))))), h = H[i];
     const c = $("cur"); c.setAttribute("x1", x(i)); c.setAttribute("x2", x(i)); c.setAttribute("visibility", "visible");
-    const by = Object.entries(h.by || {}).map(([k, v]) => `<div style="color:#aaa">${k}: ${f0(v)}°</div>`).join("");
+    const nb = Object.keys(h.by || {}).length;
+    const how = `<div style="color:#aaa">Line: ${W ? "weighted " : ""}average of ${nb} source${nb === 1 ? "" : "s"} ${f0(h.temp_avg)}°` +
+      (Math.abs(h.adj) >= 0.5 ? `, moved ${h.adj > 0 ? "+" : ""}${h.adj.toFixed(0)}° toward your station's reading now` : "") + `</div>`;
+    const by = how + Object.entries(h.by || {}).map(([k, v]) => `<div style="color:#aaa">${k}: ${f0(v)}°</div>`).join("");
     tip.innerHTML = `<b>${dayName(h.t.slice(0, 10))} ${hourLabel(h.t)}</b> ${esc(h.text || "")}<br>${f0(h.temp)}°F (feels ${f0(h.feels)}°) · ${h.pop ?? 0}% · wind ${f0(h.wind)}${h.gust > h.wind ? ", gusts " + f0(h.gust) : ""} mph${h.aqi != null ? " · AQI " + h.aqi : ""}${by}`;
     tip.style.display = "block";
     const z = +document.body.style.zoom || 1, vw = innerWidth / z, vh = innerHeight / z;
@@ -476,7 +480,10 @@ function renderDaily() {
       <div>${icon(d.icon, 24)}</div><div class="txt" title="${esc(txt)}">${esc(txt)}</div>
       <div class="pop">${d.pop ? d.pop + "%" : ""}</div>
       <div class="lo">${f0(d.lo)}°</div>
-      <div class="bar"><div class="sp" style="left:${pct(d.lo_min ?? d.lo)}%;width:${pct(d.hi_max ?? d.hi) - pct(d.lo_min ?? d.lo)}%"></div>
+      <div class="bar" title="${esc(`${name}: low ${f0(d.lo)}°, high ${f0(d.hi)}° (${W ? "average of all sources, weighted so the most accurate ones count more" : "average of all sources"}).\n` +
+        `Coloured bar: from the low to the high, shaded blue (cold) through to red (warm).\n` +
+        (d.lo_min != null || d.hi_max != null ? `Thin tick marks at each end: the full spread of what the sources predict, from the coldest low (${f0(d.lo_min ?? d.lo)}°) to the warmest high (${f0(d.hi_max ?? d.hi)}°). Ticks far from the coloured bar mean the sources disagree.\n` : "") +
+        `The grey track is the same scale for every day (coldest to warmest of the 16 days), so further right = warmer.`)}"><div class="sp" style="left:${pct(d.lo_min ?? d.lo)}%;width:${pct(d.hi_max ?? d.hi) - pct(d.lo_min ?? d.lo)}%"></div>
         <div class="rng" style="left:${pct(d.lo)}%;width:${Math.max(2, pct(d.hi) - pct(d.lo))}%;background:linear-gradient(90deg,${tempColor(d.lo)},${tempColor(d.hi)})"></div></div>
       <div class="hi">${f0(d.hi)}°</div>
       <div class="dot" title="${esc(`How well the sources agree on this day: ${{ good: "GOOD", fair: "FAIR", low: "LOW" }[d.agree] || "–"}\n` +
@@ -552,6 +559,44 @@ function applyWeights() {
         if (v[k] != null) { const w = W[s] ?? W._typical; sum += v[k] * w; wsum += w; }
       if (wsum) d[k] = Math.round(sum / wsum);
     }
+  hourlyLine();
+  for (const h of D.hourly) {      // feels-like moves with the line (it came from the model's own temperature)
+    if (h.feels_raw === undefined) h.feels_raw = h.feels;
+    if (h.feels_raw != null) h.feels = h.feels_raw + h.temp - (h.temp_model ?? h.temp_nws);
+  }
+}
+// The hourly temperature line: the same (weighted) average of every source for each hour, then
+// nudged to your station's actual reading - fully at "now", fading out over the next BLEND_H hours.
+const BLEND_H = 6;
+const LINE_EXPLAIN = "The line: for each hour, the average of every source's forecast, weighted so the sources " +
+  "that have been most accurate at your place count more (switch on the Compare tab).\n" +
+  "Near now it also starts from your station's actual reading and blends back into the forecast over " +
+  "the next 6 hours, so the line doesn't start off from where the temperature really is.\n" +
+  "Sky, icons and rain chances still follow the National Weather Service where it has hours.";
+let blend = null;    // {off, until} when the station nudge is in use (for tooltips)
+function hourlyLine() {
+  for (const h of D.hourly) {
+    if (h.temp_nws === undefined) h.temp_nws = h.temp;     // what the backend sent (NWS where it has hours)
+    let sum = 0, wsum = 0;
+    for (const [s, v] of Object.entries(h.by || {}))
+      if (v != null) { const w = W ? (W[s] ?? W._typical) : 1; sum += v * w; wsum += w; }
+    h.temp_avg = wsum ? sum / wsum : h.temp_nws;
+    h.temp = h.temp_avg; h.adj = 0;
+  }
+  blend = null;
+  const n = D.now, H = D.hourly;
+  if (!n || n.temp == null || /model/i.test(n.station || "") || !H.length) return;
+  const nowMs = Date.now(), age = (nowMs - new Date(n.time)) / 60000;
+  if (!(age < 60)) return;                                  // only a fresh reading
+  const frac = (nowMs - new Date(H[0].t)) / 3600000, i0 = Math.floor(frac);
+  if (frac < 0 || i0 >= H.length - 1) return;
+  const fc = H[i0].temp + (H[i0 + 1].temp - H[i0].temp) * (frac - i0);
+  const off = n.temp - fc;
+  if (Math.abs(off) > 25) return;                           // a station glitch, not weather
+  H.forEach(h => { const ahead = (new Date(h.t) - nowMs) / 3600000;
+    const f = ahead <= 0 ? 1 : Math.max(0, 1 - ahead / BLEND_H);
+    h.adj = off * f; h.temp = h.temp_avg + h.adj; });
+  blend = { off, station: n.station, until: new Date(nowMs + BLEND_H * 3600000) };
 }
 const shareOf = s => { if (!W) return null; const tot = Object.keys(D.days[1]?.by || {}).reduce((t, x) => t + (W[x] ?? W._typical), 0);
   return Math.round((W[s] ?? W._typical) / tot * 100); };
@@ -801,9 +846,12 @@ function mercuryTubes(n, g) {
   return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">${s}</svg>`;
 }
 
-// Trend graphs: the last 24 hours of pressure, temperature and wind.
-function trendGraphs(n, g) {
-  const W = Math.max(320, innerW()), now = Date.now() / 1000, t0 = now - 24 * 3600;
+// Trend graphs: the last 24 or 72 hours of pressure, temperature and wind.
+function trendGraphs(n, g, hours = 24) {
+  const W = Math.max(320, innerW()), now = Date.now() / 1000, t0 = now - hours * 3600;
+  const every = hours > 24 ? 12 : 6, bw = hours > 24 ? 1.5 : 3;
+  const lab = e => { const d = new Date(e * 1000), hr = d.toLocaleTimeString("en-US", { hour: "numeric" });
+    return hours > 24 ? d.toLocaleDateString("en-US", { weekday: "short" }) + " " + hr.replace(" ", "").replace("M", "").toLowerCase() : hr; };
   const chart = (title, rows, series, opts) => {
     const pts = rows.filter(r => r[0] >= t0);
     if (pts.length < 2) return `<div class="gcap">${title}: not enough history yet</div>`;
@@ -824,15 +872,15 @@ function trendGraphs(n, g) {
       <text x="${W - Rr}" y="14" text-anchor="end" style="fill:var(--dim);font-size:11px">${opts.summary}</text>`;
     for (let k = 0; k <= 4; k++) { const v = lo + (hi - lo) * k / 4, y = Y(v);
       s += `<line x1="${L}" x2="${W - Rr}" y1="${y}" y2="${y}" style="stroke:var(--cgrid)"/><text x="${L - 4}" y="${y + 3}" text-anchor="end" style="fill:var(--faint);font-size:9px">${opts.fmt(v)}</text>`; }
-    for (let hAgo = 24; hAgo >= 0; hAgo -= 6) { const x = X(now - hAgo * 3600);
-      s += `<line x1="${x}" x2="${x}" y1="${T}" y2="${T + ih}" style="stroke:var(--cgrid)"/><text x="${x}" y="${h - 4}" text-anchor="middle" style="fill:var(--faint);font-size:9px">${hAgo ? new Date((now - hAgo * 3600) * 1000).toLocaleTimeString("en-US", { hour: "numeric" }) : "now"}</text>`; }
+    for (let hAgo = hours; hAgo >= 0; hAgo -= every) { const x = X(now - hAgo * 3600);
+      s += `<line x1="${x}" x2="${x}" y1="${T}" y2="${T + ih}" style="stroke:var(--cgrid)"/><text x="${x}" y="${h - 4}" text-anchor="middle" style="fill:var(--faint);font-size:9px">${hAgo ? lab(now - hAgo * 3600) : "now"}</text>`; }
     if (ov.length > 1) {
       const xs = r => Math.max(L, Math.min(W - Rr, X(r[0])));
       s += `<path d="M${ov.map(r => `${xs(r).toFixed(1)} ${Y(r[1]).toFixed(1)}`).join("L")}" fill="none" style="stroke:${opts.overlay.c}" stroke-width="1.8" stroke-dasharray="2 3"/>`;
     }
     for (const sr of series) {
       const p = pts.filter(r => r[sr.i] != null);
-      if (sr.bars) s += p.map(r => `<rect x="${X(r[0]) - 1.5}" y="${Y(r[sr.i])}" width="3" height="${T + ih - Y(r[sr.i])}" style="fill:${sr.c}" opacity=".55"/>`).join("");
+      if (sr.bars) s += p.map(r => `<rect x="${X(r[0]) - bw / 2}" y="${Y(r[sr.i])}" width="${bw}" height="${T + ih - Y(r[sr.i])}" style="fill:${sr.c}" opacity=".55"/>`).join("");
       else s += `<path d="M${p.map(r => `${X(r[0]).toFixed(1)} ${Y(r[sr.i]).toFixed(1)}`).join("L")}" fill="none" style="stroke:${sr.c}" stroke-width="2"/>`;
     }
     for (const m of opts.marks || []) if (m.v != null) s += `<circle cx="${X(m.t)}" cy="${Y(m.v)}" r="3.5" style="fill:${m.c}"><title>${esc(m.title)}</title></circle>`;
@@ -841,24 +889,25 @@ function trendGraphs(n, g) {
     s += pts.map(r => `<rect x="${X(r[0]) - step / 2}" y="${T}" width="${step}" height="${ih}" fill="transparent"><title>${new Date(r[0] * 1000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}: ${opts.tip(r)}</title></rect>`).join("");
     return `<svg width="${W}" height="${h}" style="display:block;margin-bottom:4px">${s}</svg>`;
   };
-  const p = g?.p_hist || [], t = g?.t_hist || [], w = g?.w_hist || [];
+  const inWin = rows => (rows || []).filter(r => r[0] >= t0);
+  const p = inWin(g?.p_hist), t = inWin(g?.t_hist), w = inWin(g?.w_hist);
   const pc = p.length > 1 ? p[p.length - 1][1] - p[0][1] : null;
   const tmin = t.length ? t.reduce((a, r) => r[1] < a[1] ? r : a) : null, tmax = t.length ? t.reduce((a, r) => r[1] > a[1] ? r : a) : null;
   const gmax = w.length ? w.reduce((a, r) => r[2] > a[2] ? r : a) : null;
   // forecast made a day ahead vs what the station measured
   const fc = g?.f_hist || [];
   const fcAt = e => { let best = null; for (const r of fc) if (Math.abs(r[0] - e) <= 2400 && (!best || Math.abs(r[0] - e) < Math.abs(best[0] - e))) best = r; return best; };
-  const pairs = t.filter(r => r[0] >= now - 24 * 3600).map(r => [r, fcAt(r[0])]).filter(([, f]) => f);
+  const pairs = t.map(r => [r, fcAt(r[0])]).filter(([, f]) => f);
   const miss = pairs.length ? pairs.reduce((a, [r, f]) => a + Math.abs(f[1] - r[1]), 0) / pairs.length : null;
   const bias = pairs.length ? pairs.reduce((a, [r, f]) => a + (f[1] - r[1]), 0) / pairs.length : null;
   const fcBy = [...new Set(fc.map(r => r[2]))].map(b => b === "panel" ? "WeatherDial's own forecast line" : "Open-Meteo's archive of past forecasts").join(" and ");
   const fcTip = `Dotted line: the temperature forecast for each hour about a day ahead (from ${fcBy || "–"}), ` +
     `compared with what your station actually measured (solid line).` +
-    (miss != null ? `\nOver the last 24 hours it was off by ${miss.toFixed(1)}° on average` +
+    (miss != null ? `\nOver the last ${hours} hours it was off by ${miss.toFixed(1)}° on average` +
       (Math.abs(bias) >= 0.75 ? `, running ${Math.abs(bias).toFixed(1)}° too ${bias > 0 ? "warm" : "cold"}.` : `, with no lean warm or cold.`) : "");
   return chart("Pressure (sea level, in)", p, [{ i: 1, c: "var(--accent)" }],
       { fmt: v => v.toFixed(2), minSpan: .1, tip: r => `${r[1].toFixed(2)} in`,
-        summary: pc != null ? `${pc >= 0 ? "+" : ""}${pc.toFixed(2)} in over 24 h · ${{ rising: "↗ rising", falling: "↘ falling", steady: "→ steady" }[n.trend] || ""}` : "" }) +
+        summary: pc != null ? `${pc >= 0 ? "+" : ""}${pc.toFixed(2)} in over ${hours} h · ${{ rising: "↗ rising", falling: "↘ falling", steady: "→ steady" }[n.trend] || ""}` : "" }) +
     chart("Temperature (°F)", t, [{ i: 1, c: "var(--ctemp)" }],
       { fmt: v => Math.round(v) + "°", minSpan: 4,
         tip: r => { const f = fcAt(r[0]); return `${r[1].toFixed(1)}°F measured` + (f ? `, forecast a day ahead ${f[1].toFixed(1)}°F (${f[1] - r[1] >= 0 ? "+" : ""}${(f[1] - r[1]).toFixed(1)}°)` : ""); },
@@ -932,7 +981,7 @@ const HELP = () => ({
       <li><b>Rain gauge</b>: the water is today's rain since midnight. The scale grows with the amount. The dashed orange line is yesterday's total (needs the Tempest token).</li></ul>
     <p style="color:var(--dim)">Hover an arrow or line for its exact value.</p>`,
   graphs: `<h3>Reading the trend graphs</h3><ul>
-      <li>Each graph shows the <b>last 24 hours</b> from your station, oldest on the left and <b>now</b> on the right.</li>
+      <li>Each graph shows the <b>last 24 hours</b> (or <b>72 hours</b> with the "72 h" button) from your station, oldest on the left and <b>now</b> on the right. The 72-hour view is good for spotting a slow pressure fall over a few days, or a warming or cooling trend.</li>
       <li><b>Pressure</b> (sea level): the line's slope is what matters. Going up means improving; going down means change on the way. A drop of more than about 0.06 in within 3 hours often comes before a storm or strong wind. The summary on the right gives the 24-hour change.</li>
       <li><b>Temperature</b>: the solid line is what your station <b>measured</b>; the <span style="color:#2a74c9">blue</span> dot marks the lowest point and the <span style="color:#d9443a">red</span> dot the highest in the last 24 hours.</li>
       <li>The <b>dotted line</b> is what was <b>forecast a day ahead</b> for each of those hours (WeatherDial's own forecast line once it has saved a day of them; until then Open-Meteo's archive of past forecasts). Where the dotted line sits above the solid one, the forecast was too warm; below, too cold. The summary at the top right gives the average miss.</li>
@@ -946,8 +995,8 @@ function renderGauges() {
   let body;
   if (gStyle === "tubes") {
     body = `<div style="max-width:${Math.max(300, Math.min(innerW(), (tabH - 50) * 480 / 330))}px;margin:0 auto">${mercuryTubes(n, g)}</div>`;
-  } else if (gStyle === "graphs") {
-    body = trendGraphs(n, g);
+  } else if (gStyle === "graphs" || gStyle === "graphs72") {
+    body = trendGraphs(n, g, gStyle === "graphs72" ? 72 : 24);
   } else if (gStyle === "classic") {
     const size = Math.max(240, Math.min(innerW(), tabH - 70));
     const d24 = g.p_24h != null && n.pressure ? +n.pressure - g.p_24h : null;
@@ -972,9 +1021,9 @@ function renderGauges() {
       ${windDial(n)}</div>`;
   }
   const opt = (k, label) => `<span data-g="${k}" class="${gStyle === k ? "on" : ""}">${label}</span>`;
-  box.innerHTML = `<div class="gbar"><span class="seg" id="gseg">${opt("classic", "Barometer")}${opt("dials", "Dials")}${opt("tubes", "Tubes")}${opt("graphs", "24 h graphs")}</span>
+  box.innerHTML = `<div class="gbar"><span class="seg" id="gseg">${opt("classic", "Barometer")}${opt("dials", "Dials")}${opt("tubes", "Tubes")}${opt("graphs", "24 h graphs")}${opt("graphs72", "72 h")}</span>
       <span class="help" id="ghelp">ⓘ How to read</span></div>${body}
-    ${helpOpen ? `<div class="helpbox"><span class="x" id="gx" title="Close">✕</span>${HELP()[gStyle]}</div>` : ""}`;
+    ${helpOpen ? `<div class="helpbox"><span class="x" id="gx" title="Close">✕</span>${HELP()[gStyle === "graphs72" ? "graphs" : gStyle]}</div>` : ""}`;
 }
 document.addEventListener("click", e => {
   const s = e.target.closest("#gseg span");
