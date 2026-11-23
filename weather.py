@@ -410,6 +410,23 @@ def src_tempest(cfg, keys, clock):
                 f"?time_start={start}&time_end={int(time.time())}&token={urllib.parse.quote(tok)}")
         wind_max = wind_from_obs(h.get("obs") or [], clock)
         temps = temps_from_obs(h.get("obs") or [], clock)
+    # Rain this month and this year from the station's own statistics (whole history, whether or
+    # not WeatherDial was running). Index 28 = the day's rain in mm, 29 = the same after Tempest's
+    # "Rain Check" correction (used when present).
+    try:
+        sts = get(f"https://swd.weatherflow.com/swd/rest/stats/station/{sid}?token={urllib.parse.quote(tok)}")
+        mm = lambda row: (row[29] if len(row) > 29 and row[29] is not None else row[28] if len(row) > 28 else None)
+        today_s = clock.day(clock.from_epoch(time.time()))
+        for key, start_s, field in (("stats_month", today_s[:8] + "01", "rain_month"),
+                                    ("stats_year", today_s[:5] + "01-01", "rain_year")):
+            row = next((r for r in sts.get(key) or [] if r and r[0] == start_s), None)
+            if row and mm(row) is not None:
+                now[field] = round(mm(row) / 25.4, 2)
+        first = sts.get("first_ob_day_local")
+        if first and first > today_s[:5] + "01-01":
+            now["rain_since"] = first        # the station is newer than this year
+    except Exception as e:                    # statistics are a nice-to-have
+        now["rain_stats_error"] = str(e)[:80]
     # station pressure (mb) through the last day, for the barometer's history needle
     obs = (h.get("obs") or []) if device else []
     p_hist = [[ob[0], ob[6]] for ob in obs if len(ob) > 6 and ob[6]]
@@ -500,6 +517,95 @@ def record_actuals(new):
         if not old or RANK.get(a["how"], 0) >= RANK.get(old.get("how"), 0):
             act[date] = a
     save_if_changed(path, act)
+
+
+# ---- beyond the 16-day forecast: normals for each date, and the seasonal outlook's lean
+NORMALS = DATA / "normals.json"
+
+
+def src_normals(cfg, keys, clock):
+    """Typical weather for each date at your spot: 1991-2020 averages of Open-Meteo's archive
+    (ERA5 reanalysis), each date smoothed over the two weeks around it. Downloaded once (again
+    only if the location changes)."""
+    loc = f"{float(cfg['lat']):.3f},{float(cfg['lon']):.3f}"
+    cached = load_json(NORMALS, {})
+    if cached.get("loc") != loc or not cached.get("days"):
+        d = get(f"https://archive-api.open-meteo.com/v1/archive?latitude={cfg['lat']}&longitude={cfg['lon']}"
+                "&start_date=1991-01-01&end_date=2020-12-31"
+                "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,snowfall_sum"
+                "&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=auto", timeout=120)["daily"]
+        per = {}
+        for t, hi, lo, p, sn in zip(d["time"], d["temperature_2m_max"], d["temperature_2m_min"],
+                                    d["precipitation_sum"], d["snowfall_sum"]):
+            if hi is not None and lo is not None:
+                per.setdefault(t[5:], []).append((hi, lo, p or 0, sn or 0))
+        mds = sorted(per)                       # "01-01" ... "12-31" (with "02-29")
+        days = {}
+        for i, md in enumerate(mds):
+            rows = [r for k in range(-7, 8) for r in per[mds[(i + k) % len(mds)]]]
+            n = len(rows)
+            days[md] = {"hi": round(sum(r[0] for r in rows) / n, 1), "lo": round(sum(r[1] for r in rows) / n, 1),
+                        "pop": round(100 * sum(r[2] >= 0.01 for r in rows) / n),
+                        "precip": round(sum(r[2] for r in rows) / n, 2), "snow": round(sum(r[3] for r in rows) / n, 2)}
+        cached = {"loc": loc, "period": "1991-2020", "days": days}
+        save_json(NORMALS, cached)
+    return {"daily": [], "hourly": [], "normals": cached}
+
+
+def src_seasonal(cfg, keys, clock):
+    """Open-Meteo's seasonal forecast (ECMWF, 51 runs, 45 days): only used for whether the weeks
+    after the 16-day forecast lean warmer or colder than normal."""
+    d = get(f"https://seasonal-api.open-meteo.com/v1/seasonal?latitude={cfg['lat']}&longitude={cfg['lon']}"
+            "&daily=temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit"
+            "&forecast_days=45&timezone=auto", timeout=60)["daily"]
+    runs = []
+    for k in d:
+        if k.startswith("temperature_2m_max"):
+            lo = d.get(k.replace("_max", "_min"))
+            if lo:
+                runs.append([None if a is None or b is None else round((a + b) / 2, 1) for a, b in zip(d[k], lo)])
+    return {"daily": [], "hourly": [], "seasonal": {"time": d["time"], "runs": runs}}
+
+
+def outlook(days, normals, seasonal):
+    """{date: {"lean": "warmer"|"colder"|None, "share": % of runs warmer, "anom": °F}} for the
+    dates after the 16-day forecast that the seasonal forecast covers. Each date looks at the
+    week around it (single days that far out mean little). The seasonal model's own bias at
+    this spot is removed first by comparing it with WeatherDial's forecast for days 3-16."""
+    nd = (normals or {}).get("days") or {}
+    t, runs = (seasonal or {}).get("time") or [], (seasonal or {}).get("runs") or []
+    if not nd or not t or not runs or not days:
+        return {}
+    idx = {d: i for i, d in enumerate(t)}
+    norm = lambda d: (nd[d[5:]]["hi"] + nd[d[5:]]["lo"]) / 2 if d[5:] in nd else None
+    ens = lambda i: [r[i] for r in runs if r[i] is not None]
+    diffs = []
+    for day in days[2:]:
+        i = idx.get(day["date"])
+        if i is not None and day.get("hi") is not None and day.get("lo") is not None and ens(i):
+            diffs.append(sum(ens(i)) / len(ens(i)) - (day["hi"] + day["lo"]) / 2)
+    bias = sum(diffs) / len(diffs) if len(diffs) >= 5 else 0
+    last = days[-1]["date"]
+    out = {}
+    for i, date in enumerate(t):
+        if date <= last:
+            continue
+        win = [j for j in range(i - 3, i + 4) if 0 <= j < len(t) and norm(t[j]) is not None]
+        if len(win) < 5:
+            continue
+        nmean = sum(norm(t[j]) for j in win) / len(win)
+        anoms = []
+        for r in runs:
+            v = [r[j] for j in win if r[j] is not None]
+            if len(v) == len(win):
+                anoms.append(sum(v) / len(v) - bias - nmean)
+        if len(anoms) < 10:
+            continue
+        share = sum(a > 0 for a in anoms) / len(anoms)
+        anom = sum(anoms) / len(anoms)
+        lean = "warmer" if share >= 2 / 3 and anom >= 1 else "colder" if share <= 1 / 3 and anom <= -1 else None
+        out[date] = {"lean": lean, "share": round(share * 100), "anom": round(anom, 1)}
+    return out
 
 
 # ---- hourly forecast vs actual (the dotted line on the 24 h temperature graph)
@@ -982,7 +1088,16 @@ def src_visualcrossing(cfg, keys, clock):
         daily.append({"date": x["datetime"], "hi": r1(x.get("tempmax")), "lo": r1(x.get("tempmin")),
                       "pop": r0(x.get("precipprob")), "precip": x.get("precip"),
                       "wind": r0(x.get("windspeed")), "text": x.get("conditions"),
-                      "icon": text_icon(x.get("conditions"))})
+                      "icon": text_icon(x.get("conditions")),
+                      # free extras: a one-line description, the kind of precipitation, snow
+                      # (falling and on the ground, inches) and the severe-storm risk (0-100)
+                      "desc": x.get("description"), "ptype": x.get("preciptype") or None,
+                      "snow": x.get("snow"), "snowdepth": x.get("snowdepth"), "severe": x.get("severerisk"),
+                      # the day's type lists anything possible in any hour; count only hours where
+                      # freezing rain / ice is listed and precipitation is reasonably likely
+                      "ice_hours": sum(1 for hx in x.get("hours", [])
+                                       if set(hx.get("preciptype") or []) & {"freezingrain", "ice"}
+                                       and (hx.get("precipprob") or 0) >= 50)})
         for hx in x.get("hours", []):
             hourly.append({"t": clock.hour(clock.from_epoch(hx["datetimeEpoch"])), "temp": r1(hx.get("temp")),
                            "pop": r0(hx.get("precipprob")), "wind": r0(hx.get("windspeed")),
@@ -1020,7 +1135,14 @@ def src_tomorrow(cfg, keys, clock):
         daily.append({"date": clock.day(clock.from_iso(x["time"])), "hi": r1(v.get("temperatureMax")),
                       "lo": r1(v.get("temperatureMin")), "pop": r0(v.get("precipitationProbabilityMax")),
                       "wind": r0(v.get("windSpeedMax")), "text": TOMORROW_TEXT.get(code),
-                      "icon": tomorrow_icon(code)})
+                      "icon": tomorrow_icon(code),
+                      # free extras: freezing rain / sleet ice expected (inches) and snow on the ground
+                      "ice": v.get("iceAccumulationSum"), "sdepth": v.get("snowDepthAvg")})
+    # minute by minute for the next hour (in/hr): stands in for MinuteCast when that isn't available
+    minutely = [[int(clock_epoch(x["time"])), (x["values"].get("rainIntensity") or 0),
+                 (x["values"].get("snowIntensity") or 0),
+                 (x["values"].get("freezingRainIntensity") or 0) + (x["values"].get("sleetIntensity") or 0)]
+                for x in tl.get("minutely", [])]
     hourly = []
     for x in tl.get("hourly", []):
         v = x["values"]
@@ -1029,7 +1151,44 @@ def src_tomorrow(cfg, keys, clock):
                        "pop": r0(v.get("precipitationProbability")), "wind": r0(v.get("windSpeed")),
                        "gust": r0(v.get("windGust")), "text": TOMORROW_TEXT.get(code),
                        "icon": tomorrow_icon(code)})
-    return {"daily": daily, "hourly": hourly}
+    return {"daily": daily, "hourly": hourly, "minutely": minutely}
+
+
+def clock_epoch(iso):
+    """'2026-11-23T17:17:00Z' -> seconds since 1970."""
+    return dt.datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp()
+
+
+def minutes_to_cast(rows, now, clock):
+    """Tomorrow.io's minute-by-minute rows -> the same shape as AccuWeather MinuteCast
+    (phrase, type, segments in minutes from now), for the minutes still ahead."""
+    ahead = [r for r in rows if r[0] >= now - 59]
+    if len(ahead) < 20:
+        return None
+    def kind(r):
+        rain, snow, ice = r[1] >= 0.01, r[2] >= 0.01, r[3] >= 0.01
+        return "ice" if ice else "mix" if rain and snow else "snow" if snow else "rain" if rain else None
+    t0, segs = ahead[0][0], []
+    for r in ahead:
+        m, k = int((r[0] - t0) // 60), kind(r)
+        if segs and segs[-1]["type"] == k and segs[-1]["end"] == m - 1:
+            segs[-1]["end"] = m
+        else:
+            segs.append({"start": m, "end": m, "type": k})
+    span = int((ahead[-1][0] - t0) // 60) + 1
+    wet = [s for s in segs if s["type"]]
+    name = {"rain": "Rain", "snow": "Snow", "ice": "Freezing rain or sleet", "mix": "Rain and snow"}
+    if not wet:
+        phrase, typ = f"No rain or snow for at least {span} min", None
+    elif wet[0]["start"] == 0:
+        typ = wet[0]["type"]
+        phrase = (f"{name[typ]} now, ending in {wet[0]['end'] + 1} min" if wet[0]["end"] < span - 1
+                  else f"{name[typ]} for at least {span} min")
+    else:
+        typ = wet[0]["type"]
+        phrase = f"{name[typ]} starting in {wet[0]['start']} min"
+    return {"phrase": phrase, "type": typ, "segments": segs, "span": span, "by": "Tomorrow.io",
+            "at": clock.from_epoch(t0).isoformat(timespec="minutes")}
 
 
 # name, function, key needed, minutes between refreshes, sign-up page
@@ -1040,6 +1199,8 @@ SOURCES = [
     ("Air quality", src_air, None, 30, None),
     ("Accuracy history", src_backfill, None, 360, None),
     ("Past forecasts", src_past_forecast, None, 60, None),
+    ("Normals", src_normals, None, 1440, None),
+    ("Seasonal outlook", src_seasonal, None, 360, None),
     ("Tempest (live, local)", src_local_station, None, 0, None),
     ("Your Tempest", src_tempest, "tempest_token", 5, "https://tempestwx.com/settings/tokens"),
     ("Weather.com", src_weathercom, "weathercom", 30, "https://www.wunderground.com/member/api-keys"),
@@ -1049,7 +1210,8 @@ SOURCES = [
     ("Pirate Weather", src_pirate, "pirateweather", 30, "https://pirate-weather.apiable.io/"),
     ("Visual Crossing", src_visualcrossing, "visualcrossing", 60, "https://www.visualcrossing.com/sign-up"),
     ("WeatherAPI", src_weatherapi, "weatherapi", 30, "https://www.weatherapi.com/signup.aspx"),
-    ("Tomorrow.io", src_tomorrow, "tomorrowio", 30, "https://app.tomorrow.io/signup"),
+    # every 15 min (about 96 of the free plan's ~500 calls a day) so its next-hour rain/snow stays current
+    ("Tomorrow.io", src_tomorrow, "tomorrowio", 15, "https://app.tomorrow.io/signup"),
 ]
 
 
@@ -1075,6 +1237,9 @@ def consensus(forecasts, field_days):
             for d in days:
                 if d["date"] == date:
                     row["by"][name] = {k: d.get(k) for k in ("hi", "lo", "pop", "precip", "text", "icon")}
+                    # extras only some sources give (Visual Crossing): kept when present
+                    row["by"][name].update({k: d[k] for k in ("desc", "ptype", "snow", "snowdepth", "severe", "ice_hours", "ice", "sdepth")
+                                            if d.get(k) is not None})
         for k in ("hi", "lo", "pop"):
             vals = [v[k] for v in row["by"].values() if v.get(k) is not None]
             if vals:
@@ -1086,6 +1251,13 @@ def consensus(forecasts, field_days):
             row["agree"] = "good" if spread <= 5 else "fair" if spread <= 10 else "low"
         icons = [v["icon"] for v in row["by"].values() if v.get("icon")]
         row["icon"] = max(set(icons), key=icons.count) if icons else None
+        extra = next((v for v in row["by"].values() if v.get("desc") or v.get("ptype") or v.get("severe") is not None), None)
+        if extra:
+            row["desc"], row["ptype"], row["severe"] = extra.get("desc"), extra.get("ptype"), extra.get("severe")
+            row["vc_snow"], row["snowdepth"], row["ice_hours"] = extra.get("snow"), extra.get("snowdepth"), extra.get("ice_hours")
+        tio = next((v for v in row["by"].values() if v.get("ice") is not None), None)   # Tomorrow.io
+        if tio:
+            row["tio_ice"], row["tio_sdepth"] = tio.get("ice"), tio.get("sdepth")
         out.append(row)
     return out
 
@@ -1189,6 +1361,27 @@ def gauge_data(now, tem_extra, today):
     return {"p_hist": sampled, "p_3h": p3, "p_24h": at(24 * 3600),
             "t_hist": t_s, "w_hist": w_s, "t_rate_1h": t_rate, "p_rate_1h": p_rate,
             "t_today": day}
+
+
+def track_rain(now, today):
+    """Keep each day's rain total (the highest 'rain today' seen) in data/rain_days.json, and
+    give `now` this month's and this year's totals. The station's own statistics (Tempest cloud)
+    are used when present; otherwise these sums of what WeatherDial has seen, with the first
+    day it has (rain_own_since), since the totals only count from when it started."""
+    if now.get("rain_today") is None:
+        return
+    path = DATA / "rain_days.json"
+    log = load_json(path, {})
+    if log.get(today) is None or now["rain_today"] > log[today]:
+        log[today] = round(float(now["rain_today"]), 2)
+        save_json(path, {d: v for d, v in sorted(log.items()) if d >= str(int(today[:4]) - 1)})
+    days = sorted(log)
+    for field, prefix in (("rain_month", today[:7]), ("rain_year", today[:4])):
+        if now.get(field) is None:
+            now[field] = round(sum(v for d, v in log.items() if d.startswith(prefix)), 2)
+            now["rain_own_since"] = days[0]
+        # the statistics can lag behind today's live total by a few minutes
+        now[field] = max(now[field], round(float(now["rain_today"]), 2))
 
 
 def track_wind(now, today, now_local, history=None):
@@ -1361,9 +1554,9 @@ def fetch(force=False):
     # "Now": your station first, then the nearest official station, then the model.
     wd = results.get("Tempest (live, local)") or {}
     if wd.get("now") and tem.get("now"):    # live local values + cloud-only extras (lightning)
-        for k in ("strikes_3h", "strike_dist", "strike_time", "rain_yesterday"):
+        for k in ("strikes_3h", "strike_dist", "strike_time", "rain_yesterday", "rain_month", "rain_year", "rain_since"):
             if tem["now"].get(k) is not None:
-                wd["now"][k] = tem["now"][k] if k == "rain_yesterday" else wd["now"].get(k, tem["now"][k])
+                wd["now"][k] = tem["now"][k] if k.startswith("rain_") else wd["now"].get(k, tem["now"][k])
         # The hub's own rain total only counts while WeatherDial runs; the cloud's covers the whole day.
         if wd["now"].get("via") == "Tempest hub" and tem["now"].get("rain_today") is not None:
             wd["now"]["rain_today"] = max(wd["now"]["rain_today"] or 0, tem["now"]["rain_today"])
@@ -1376,6 +1569,7 @@ def fetch(force=False):
     sun = {d["date"]: d for d in om.get("daily", [])}
     if readings:
         track_wind(readings[0], today, now_local, tem.get("extra", {}).get("wind_max"))
+        track_rain(readings[0], today)
 
     record_hourly_forecast(hourly, now_local)
     gauges = gauge_data(readings[0] if readings else {}, tem.get("extra", {}), today)
@@ -1391,6 +1585,8 @@ def fetch(force=False):
     mc = (results.get("AccuWeather MinuteCast") or {}).get("minutecast")
     mc_age = time.time() - (status.get("AccuWeather MinuteCast") or {}).get("fetched", 0)
     minutecast = mc if mc and mc_age < 45 * 60 else None
+    if not minutecast:            # no MinuteCast (e.g. after the AccuWeather trial): Tomorrow.io's next hour
+        minutecast = minutes_to_cast((results.get("Tomorrow.io") or {}).get("minutely") or [], time.time(), clock)
     idx = (results.get("AccuWeather indices") or {}).get("indices") or {}
     groups = cfg.get("index_groups") or INDEX_GROUPS
     indices = None
@@ -1400,6 +1596,8 @@ def fetch(force=False):
                    for g, ids in groups.items()]
         indices = [g for g in indices if g["items"]] or None
 
+    day_rows = consensus(fc_daily, days)
+    normals = (results.get("Normals") or {}).get("normals")
     out = {
         "updated": now_local.isoformat(timespec="minutes"),
         "location": {"name": cfg.get("name", "Home"), "near": nws.get("extra", {}).get("near"),
@@ -1409,7 +1607,9 @@ def fetch(force=False):
         "readings": readings,
         "alerts": nws.get("alerts", []),
         "hourly": hourly,
-        "days": consensus(fc_daily, days),
+        "days": day_rows,
+        "normals": (normals or {}).get("days"),
+        "outlook": outlook(day_rows, normals, (results.get("Seasonal outlook") or {}).get("seasonal")),
         "detail_days": {d["date"]: d for d in om.get("daily", [])},
         "periods": nws.get("extra", {}).get("periods", []),
         "discussion": nws.get("extra", {}).get("discussion"),

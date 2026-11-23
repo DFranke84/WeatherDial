@@ -47,11 +47,21 @@ forecasters' discussion). Elsewhere everything else still works.
   moment.
 - **16-Day:** the average of all sources for each day (weighted by accuracy, see below), with a coloured dot for how well they
   agree. Hover a day's bar for what the bar, its colours and the end ticks mean.
+  With a Visual Crossing key: a blue **ICE** tag on days where freezing rain or ice is
+  expected for 3 hours or more (with at least a 50% chance of precipitation), an amber or red
+  **⚡** tag when the severe-storm risk is 30 or more out of 100, and a description for days
+  the NWS wording doesn't reach. Click the day for the details.
 - **Month:** a calendar. Forecast days show the icon, high/low (the same averages as 16-Day),
   chance of rain or snow (or the snow amount) and a colour strip; past days show what your
   station measured, with how far the day-before forecast was off. A red ▲ marks the month's
   warmest high and a blue ▼ its coldest low. ‹ › change month; hover a day for more; click a
   forecast day to open it on the 16-Day tab.
+  Past the 16-day forecast the calendar goes on with **normals**: the typical high and low
+  for each date at your spot (1991–2020 averages of Open-Meteo's historical archive; faded,
+  dashed days). **↗ warmer / ↘ colder** marks the weeks the seasonal outlook (Open-Meteo's
+  ECMWF seasonal forecast, 51 runs, about 45 days) leans warmer or colder than normal; no
+  arrow means no clear lean. Day-by-day forecasts have little skill beyond about two weeks,
+  so these are shown as "what's typical" and "which way it leans", not as a forecast.
 - **Compare:** every source's highs and lows side by side, plus the current readings from
   your station, the nearest airport and the model.
 - **Accuracy** (Compare and Sources): a badge per source showing how close its next-day
@@ -136,7 +146,9 @@ allows them. Without any keys the panel looks like the last picture and still wo
 - **Hover the Wind box** to see today's and yesterday's highest wind and gust and when they
   happened. With the Tempest token this comes from your station's full history; without it,
   from what WeatherDial saw while running (it says so).
-- **Hover Rain today** to see yesterday's rain (needs the Tempest token).
+- **Hover Rain today** to see yesterday's rain and the totals for this month and this year.
+  With the Tempest token they come from your station's own records (complete); without it,
+  WeatherDial adds up each day's rain it has seen, and says from which date.
 - **Hover a square** on the Health tab to see that day's rating.
 
 ## How it behaves
@@ -235,19 +247,19 @@ forecast in the average.
 | Source | Key (name in `keys.json`) | Gives | Refreshes |
 |---|---|---|---|
 | National Weather Service (api.weather.gov) | none | Official 7-day and hourly forecast, alerts, nearest station's readings, forecast discussion | `refresh_minutes` |
-| Open-Meteo | none | NOAA GFS, ECMWF, DWD ICON, Canada GEM and UK Met Office models (up to 16 days), air quality, UV, sun times | `refresh_minutes`; models hourly, air quality every 30 min |
+| Open-Meteo | none | NOAA GFS, ECMWF, DWD ICON, Canada GEM and UK Met Office models (up to 16 days), air quality, UV, sun times; normals for each date (1991–2020) and the seasonal outlook for the Month calendar | `refresh_minutes`; models hourly, air quality every 30 min, seasonal outlook every 6 h, normals once |
 | RainViewer + Esri map | none | Radar | when you open the Radar tab |
 | Your Tempest hub (home network) | none | Your station live: temperature, humidity, wind, pressure, rain, UV, lightning | every 15 s (the hub sends every 3 s to 1 min) |
 | Weather Display (instead of the hub) | none | The same, read from Weather Display's `sentwurapiddata.txt` | every 15 s |
-| Tempest cloud | `tempest_token`: tempestwx.com → Settings → Data Authorizations → Create Token | Lightning, yesterday's rain, the last 72 hours, Tempest's own 10-day and hourly forecast. Also the live readings if the hub can't be heard (every 5 min). | every 5 min |
+| Tempest cloud | `tempest_token`: tempestwx.com → Settings → Data Authorizations → Create Token | Lightning, yesterday's rain, rain this month and year, the last 72 hours, Tempest's own 10-day and hourly forecast. Also the live readings if the hub can't be heard (every 5 min). | every 5 min |
 | Weather.com | `weathercom`: free for Weather Underground station owners, at wunderground.com/member/api-keys | weather.com's 5-day forecast (this key doesn't include hourly or 7/10-day) | every 30 min |
 | AccuWeather | `accuweather`: developer.accuweather.com (free trial, then paid plans) | 15-day and up to 120-hour forecast, depending on your plan (it checks once a day what the plan allows, so an upgrade is picked up automatically) | every 60 min (2 requests each, ~48 a day). The trial allows 500 a day and paid plans more, so set `source_minutes` to refresh it faster. |
-| AccuWeather MinuteCast | same `accuweather` key; in the trial, then a paid add-on | Rain or snow minute by minute for the next 2 hours. Hidden if your plan doesn't include it. | every 30 min (~48 a day; the trial allows 50) |
+| AccuWeather MinuteCast | same `accuweather` key; in the trial, then a paid add-on | Rain or snow minute by minute for the next 2 hours. If your plan doesn't include it, Tomorrow.io's next hour is shown instead (with that key), else the bar is hidden. | every 30 min (~48 a day; the trial allows 50) |
 | AccuWeather indices | same `accuweather` key | Health & lifestyle ratings for 5 days (Health tab). Hidden if your plan doesn't include it. | every 6 hours |
 | Pirate Weather | `pirateweather`: free at pirate-weather.apiable.io | 8-day and hourly forecast | every 30 min |
 | WeatherAPI.com | `weatherapi`: free at weatherapi.com | 14-day and hourly forecast (3 days on the free plan after the trial) | every 30 min |
-| Visual Crossing | `visualcrossing`: free at visualcrossing.com | 15-day and hourly forecast | every 60 min |
-| Tomorrow.io | `tomorrowio`: free at tomorrow.io | About 5-day and hourly forecast | every 30 min |
+| Visual Crossing | `visualcrossing`: free at visualcrossing.com | 15-day and hourly forecast; a description for each day (fills days 8–15 where the NWS wording stops), freezing rain / ice and severe-storm flags, snow amount and snow on the ground. Each refresh is 1 of the free plan's 1,000 records a day, so hourly uses about 24. The free plan asks for a credit, shown on the Sources tab. | every 60 min |
+| Tomorrow.io | `tomorrowio`: free at tomorrow.io | About 5-day and hourly forecast; **rain or snow minute by minute for the next hour** (shown in the MinuteCast bar whenever AccuWeather MinuteCast isn't available); ice expected from freezing rain or sleet and snow on the ground, in the day details. About 96 calls a day (the free plan allows about 500). Credit shown on the Sources tab. | every 15 min |
 
 **Adding a key:** right-click the panel → **Edit API keys…**, paste the key between the
 quotes, and save. It's used from the next refresh. To stop using a source, clear its key.
@@ -344,7 +356,8 @@ update less often.
 | AccuWeather forecast | 60 min (or `source_minutes`) | hourly |
 | AccuWeather MinuteCast | every 30 min; hidden when over 45 min old | minute by minute |
 | AccuWeather Health | every 6 hours | daily |
-| Weather.com, Pirate Weather, WeatherAPI, Tomorrow.io | every 30 min | hourly or so |
+| Weather.com, Pirate Weather, WeatherAPI | every 30 min | hourly or so |
+| Tomorrow.io (forecast and next hour) | every 15 min | hourly; next hour minute by minute |
 | Visual Crossing | every 60 min | hourly or so |
 | Radar | when the Radar tab opens, then every 10 min while it's showing | a new frame every 10 min |
 | Accuracy history (backfill) | every 6 hours | new actuals once a day |

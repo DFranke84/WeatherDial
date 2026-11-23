@@ -10,7 +10,7 @@
     --line: #2f343c; --warm: #ffb347; --cold: #6cb6ff; --rain: #4d9fff; --good: #5fd068; --fair: #ffc933;
     --bad: #ff5a4f; --accent: #7cc4ff;
     --cell: #1a1c20; --hover: #ffffff08; --hover2: #ffffff14; --hair: #ffffff0a; --track: #ffffff10;
-    --sel: #ffffff1c; --mark: #fff8; --menu: #222; --menuhover: #3a3f48; --tipbg: #111a;
+    --sel: #ffffff1c; --mark: #fff8; --menu: #222; --menuhover: #3a3f48; --tipbg: #111a; --ttbg: #16191ef2;
     --devhi: #ff9b8f; --devlo: #8fc2ff; --afd: #cfd3da;
     --cgrid: #ffffff0d; --cfreeze: #6cb6ff88; --cday: #ffffff22; --cdaytxt: #ccc; --cnight: #00000030;
     --cband: #7cc4ff22; --cfeels: #9aa0aa; --ctemp: #ffb347; --crainbar: #4d9fffaa; --csnowbar: #dfe7f5aa;
@@ -24,7 +24,7 @@
     --line: #dde1e7; --warm: #d0700f; --cold: #2a74c9; --rain: #2a74c9; --good: #2fa84a; --fair: #c99700;
     --bad: #d9443a; --accent: #2a74c9;
     --cell: #ffffff; --hover: #0000000a; --hover2: #00000012; --hair: #0000000f; --track: #00000014;
-    --sel: #0000001a; --mark: #0009; --menu: #fff; --menuhover: #e8edf4; --tipbg: #ffffffee;
+    --sel: #0000001a; --mark: #0009; --menu: #fff; --menuhover: #e8edf4; --tipbg: #ffffffee; --ttbg: #fffffff5;
     --devhi: #d9443a; --devlo: #2a74c9; --afd: #2b3038;
     --cgrid: #00000012; --cfreeze: #2a74c988; --cday: #00000030; --cdaytxt: #333; --cnight: #0000000c;
     --cband: #2a74c926; --cfeels: #7a818c; --ctemp: #e07b12; --crainbar: #2a74c9aa; --csnowbar: #98a6baaa;
@@ -102,6 +102,11 @@
   svg text { fill: var(--dim); font-size: 10px; }
   #tip { position: fixed; pointer-events: none; background: var(--tipbg); border: 1px solid var(--edge); border-radius: 6px;
          padding: 5px 8px; font-size: 12px; display: none; backdrop-filter: blur(4px); z-index: 9; }
+  /* hover help drawn inside the panel (Windows' own tooltips are separate windows that other
+     apps can cover, since the panel sits behind them) */
+  #ttip { position: fixed; pointer-events: none; background: var(--ttbg); color: var(--text); border: 1px solid var(--edge);
+          border-radius: 6px; padding: 5px 8px; font-size: 12px; line-height: 1.35; white-space: pre-line; display: none;
+          max-width: min(340px, calc(100vw - 20px)); box-shadow: 0 3px 12px #0006; z-index: 20; }
 
   .day { display: grid; grid-template-columns: 44px 26px minmax(110px, 1fr) 34px 30px minmax(140px, 1.3fr) 30px 14px; gap: 6px; align-items: center;
          padding: 3px 0; border-bottom: 1px solid var(--hair); cursor: pointer; }
@@ -135,6 +140,15 @@
   .cal .xb.hot { background: #d9443a; } .cal .xb.cold { background: #2a74c9; }
   .cal .t .xhi, .cal .past .t .xhi { color: #fff; background: #d9443a; border-radius: 3px; padding: 0 2px; }
   .cal .t .xlo, .cal .past .t .xlo { color: #fff; background: #2a74c9; border-radius: 3px; padding: 0 2px; font-weight: 600; }
+  .cal .c.norm { background: transparent; border: 1px dashed var(--edge); }
+  .cal .norm .t { font-weight: 400; } .cal .norm .t .h, .cal .norm .t .l { opacity: .6; }
+  .cal .lean { font-size: 10px; font-weight: 600; white-space: nowrap; }
+  .cal .lean.warmer { color: var(--warm); } .cal .lean.colder { color: var(--cold); }
+  .flag { display: inline-block; margin-right: 4px; padding: 0 3px; border-radius: 3px; font-size: 9px; line-height: 13px;
+          font-weight: 600; color: #fff; vertical-align: 1px; }
+  .flag.ice { background: #3a8fc4; } .flag.risk { background: #c98a00; } .flag.storm { background: #d9443a; }
+  .credit { color: var(--faint); font-size: 11px; margin: 4px 0 0; }
+  .calnote { color: var(--faint); font-size: 11px; margin: 6px 0 0; }
   .cal .strip { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; }
   .bar { position: relative; height: 6px; background: var(--track); border-radius: 3px; cursor: help; }
   .bar::before { content: ""; position: absolute; inset: -9px 0; }   /* a taller area for the tooltip */
@@ -244,6 +258,7 @@
   <div id="wgrip" title="Drag to make the panel wider or narrower. Double-click: normal width."></div>
 </div>
 <div id="tip"></div>
+<div id="ttip"></div>
 <div id="menu" hidden>
   <div data-act="lock" id="mLock">Lock position</div>
   <div data-act="compact" id="mCompact">Compact</div>
@@ -330,6 +345,22 @@ function ago(iso) {
   return s < 90 ? "just now" : s < 3600 ? Math.round(s / 60) + " min ago" : Math.round(s / 3600) + " h ago";
 }
 
+// Rain tooltip: yesterday, this month and this year.
+function rainTip(n) {
+  const inch = v => `${(+v).toFixed(2)}"`, now = new Date();
+  const mon = now.toLocaleDateString("en-US", { month: "long" });
+  const short = s => new Date(s + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  // counting started after the period began (WeatherDial's own log, or a station newer than this year)?
+  const own = n.rain_own_since, first = own || n.rain_since, today = ymd(now);
+  const since = startOfPeriod => first && first > startOfPeriod ? ` (since ${short(first)})` : "";
+  const lines = [n.rain_yesterday != null ? `Yesterday: ${inch(n.rain_yesterday)}` : "Yesterday: needs the Tempest cloud token"];
+  if (n.rain_month != null) lines.push(`This month (${mon}): ${inch(n.rain_month)}${since(today.slice(0, 8) + "01")}`);
+  if (n.rain_year != null) lines.push(`This year (${now.getFullYear()}): ${inch(n.rain_year)}${since(today.slice(0, 5) + "01-01")}`);
+  if (own) lines.push(`\nMonth and year count only the days WeatherDial has seen, from ${short(own)} on.\nAdd the Tempest token for your station's complete totals.`);
+  else if (n.rain_month != null) lines.push(`\nFrom your Tempest's own records (complete, whether or not WeatherDial was running).`);
+  return lines.join("\n");
+}
+
 // ---------------------------------------------------------------- render
 function render() {
   const L = D.location, n = D.now || {}, today = D.days[0] || {}, sky = D.sky.today || {};
@@ -373,7 +404,7 @@ function render() {
       (G.p_3h != null && n.pressure ? `\nOver the last 3 hours: ${(+n.pressure - G.p_3h) >= 0 ? "+" : ""}${(+n.pressure - G.p_3h).toFixed(3)} in (${n.trend || "–"})` : "") +
       `\nRising usually means improving weather; falling means change on the way.`],
     ["Rain today", `${n.rain_today != null ? n.rain_today.toFixed(2) + '"' : "–"} <small>${n.rain_rate ? "falling now" : ""}</small>`, "",
-     n.rain_yesterday != null ? `Rain yesterday: ${(+n.rain_yesterday).toFixed(2)}"` : "Rain yesterday needs the Tempest cloud token"],
+     rainTip(n)],
     ["UV / sun", `${n.uv ?? sky.uv ?? "–"} <small>${n.solar != null ? Math.round(n.solar) + " W/m²" : ""}</small>`, "extra"],
     ["Sun · moon", `<small>↑</small>${hm(sky.sunrise)} <small>↓</small>${hm(sky.sunset)} <small title="${D.sky.moon.name}, ${D.sky.moon.illum}% lit">${moonGlyph(D.sky.moon.phase)}</small>`, "extra"],
     ["Air quality", `<span style="color:${aq[1]}">${D.air?.us_aqi ?? "–"}</span> <small>${aq[0]}</small>`, "extra"],
@@ -395,12 +426,14 @@ function renderMinuteCast() {
   box.hidden = !m;
   if (!m) return;
   const col = { rain: "#4d9fff", snow: "#e6edf7", ice: "#b48cff", mix: "#9ec5ff" };
+  const span = m.span || 120, by = m.by || "AccuWeather MinuteCast";   // 120 min MinuteCast, ~60 min Tomorrow.io
   const segs = m.segments.filter(s => s.type).map(s =>
-    `<i style="left:${s.start / 120 * 100}%;width:${(s.end - s.start + 1) / 120 * 100}%;background:${col[s.type] || "#4d9fff"}" title="${s.type} from ${s.start} to ${s.end + 1} min"></i>`).join("");
+    `<i style="left:${s.start / span * 100}%;width:${(s.end - s.start + 1) / span * 100}%;background:${col[s.type] || "#4d9fff"}" title="${s.type} from ${s.start} to ${s.end + 1} min"></i>`).join("");
   const wet = m.segments.some(s => s.type);
+  const ticks = span > 90 ? [0, 30, 60, 90, 120] : [0, 15, 30, 45, 60].filter(t => t <= span);
   box.innerHTML = `<div>${icon(m.type === "snow" ? "snow" : wet ? "rain" : "clear", 20)}</div>
-    <div class="ph">${esc(m.phrase || "No rain or snow for the next 2 hours")} <small>· next 2 hours, as of ${hm(m.at)} · AccuWeather MinuteCast</small></div>
-    ${wet ? `<div class="strip">${segs}</div><div class="ticks"><span>now</span><span>30</span><span>60</span><span>90</span><span>120 min</span></div>` : ""}`;
+    <div class="ph">${esc(m.phrase || "No rain or snow for the next 2 hours")} <small>· next ${span > 90 ? "2 hours" : span + " min"}, as of ${hm(m.at)} · ${by}</small></div>
+    ${wet ? `<div class="strip">${segs}</div><div class="ticks">${ticks.map((t, i) => `<span>${t ? t + (i === ticks.length - 1 ? " min" : "") : "now"}</span>`).join("")}</div>` : ""}`;
 }
 
 const goodness = (x, d) => d.level == null ? null : x.ascending ? d.level : 6 - d.level;   // 5 = best
@@ -492,6 +525,36 @@ function renderHourly(force) {
   $("span").onclick = e => { if (e.target.dataset.h) { hourSpan = +e.target.dataset.h; renderHourly(); } };
 }
 
+// A day's wording: the NWS forecast where it has one (7 days), else Visual Crossing's description,
+// else the model blend's. Flags for freezing rain / ice and severe-storm risk (Visual Crossing).
+const dayText = (d, dd) => (d.by["NWS (official)"] || {}).text || d.desc || (dd || {}).text || "";
+function dayFlags(d) {
+  const out = { html: "", lines: [] }, pt = d.ptype || [];
+  if (d.ice_hours >= 3) {        // a few hours, not a stray one: Visual Crossing lists it generously
+    out.html += `<span class="flag ice">ICE</span>`;
+    out.lines.push(`Freezing rain or ice likely for about ${d.ice_hours} hour${d.ice_hours === 1 ? "" : "s"} (Visual Crossing: hours with a 50%+ chance of precipitation where freezing rain or ice is expected).` +
+      (d.tio_ice != null ? ` Tomorrow.io expects ${(+d.tio_ice).toFixed(2)}" of ice${d.tio_ice < 0.01 ? ", so the two disagree" : ""}.` : ""));
+  }
+  if (d.severe != null && d.severe >= 30) {
+    const high = d.severe >= 70;
+    out.html += `<span class="flag ${high ? "storm" : "risk"}">⚡${high ? " SEVERE" : ""}</span>`;
+    out.lines.push(`Severe-storm risk ${Math.round(d.severe)} of 100 (${high ? "high" : "moderate"}; Visual Crossing: under 30 low, 30–70 moderate, over 70 high).`);
+  }
+  return out;
+}
+const vcDetail = d => tioDetail(d) + vcDetail1(d);
+const tioDetail = d => d.tio_ice == null ? "" : `<p><b>Tomorrow.io:</b> ice from freezing rain or sleet ${(+d.tio_ice).toFixed(2)}"` +
+  (d.tio_sdepth ? ` · snow on the ground ${(+d.tio_sdepth).toFixed(1)}"` : "") + `</p>`;
+const vcDetail1 = d => {
+  if (!d.desc && !d.ptype && d.vc_snow == null) return "";
+  const bits = [];
+  if (d.ptype?.length) bits.push("possible: " + d.ptype.map(p => ({ freezingrain: "freezing rain" }[p] || p)).join(", "));
+  if (d.vc_snow) bits.push(`snow ${d.vc_snow.toFixed(1)}"`);
+  if (d.snowdepth) bits.push(`on the ground ${d.snowdepth.toFixed(1)}"`);
+  if (d.severe >= 10) bits.push(`severe-storm risk ${Math.round(d.severe)}/100`);
+  return `<p><b>Visual Crossing:</b> ${esc(d.desc || "")}${bits.length ? ` <span style="color:var(--dim)">(${bits.join(" · ")})</span>` : ""}</p>`;
+};
+
 function renderDaily() {
   const days = D.days, all = days.flatMap(d => [d.lo_min, d.hi_max]).filter(v => v != null);
   const mn = Math.min(...all), mx = Math.max(...all), pct = v => (v - mn) / (mx - mn) * 100;
@@ -499,13 +562,13 @@ function renderDaily() {
   const periods = D.periods || [];
   $("t-daily").innerHTML = days.map((d, i) => {
     const date = new Date(d.date + "T12:00"), dd = D.detail_days[d.date] || {};
-    const txt = (d.by["NWS (official)"] || {}).text || dd.text || "";
+    const txt = dayText(d, dd), fl = dayFlags(d);
     const name = i === 0 ? "Today" : dayName(d.date);
     const myP = periods.filter(p => p.name && periodDate(p) === d.date);
     const srcRows = Object.entries(d.by).map(([k, v]) => `<tr><td>${k}</td><td style="color:var(--warm)">${f0(v.hi)}°</td><td style="color:var(--cold)">${f0(v.lo)}°</td><td style="color:var(--rain)">${v.pop != null ? v.pop + "%" : ""}</td><td>${esc(v.text || "")}</td></tr>`).join("");
     return `<div class="day" data-i="${i}">
       <div class="dn">${name}<small>${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}</small></div>
-      <div>${icon(d.icon, 24)}</div><div class="txt" title="${esc(txt)}">${esc(txt)}</div>
+      <div>${icon(d.icon, 24)}</div><div class="txt" title="${esc([txt, ...fl.lines].join("\n"))}">${fl.html}${esc(txt)}</div>
       <div class="pop">${d.pop ? d.pop + "%" : ""}</div>
       <div class="lo">${f0(d.lo)}°</div>
       <div class="bar" title="${esc(`${name}: low ${f0(d.lo)}°, high ${f0(d.hi)}° (${W ? "average of all sources, weighted so the most accurate ones count more" : "average of all sources"}).\n` +
@@ -522,6 +585,7 @@ function renderDaily() {
     </div>
     <div class="detail" id="dd${i}">
       ${myP.map(p => `<p><b>${p.name}:</b> ${esc(p.detail)}</p>`).join("")}
+      ${vcDetail(d)}${fl.lines.map(l => `<p style="color:var(--fair)">⚠ ${esc(l)}</p>`).join("")}
       ${dd.sunrise ? `<p>Sunrise ${clock(dd.sunrise)} · sunset ${clock(dd.sunset)} · UV ${dd.uv ?? "–"}${dd.snow ? ` · snow ${dd.snow.toFixed(1)}"` : ""}${dd.precip ? ` · precip ${dd.precip.toFixed(2)}"` : ""} · gusts ${f0(dd.gust)} mph</p>` : ""}
       <table>${srcRows}</table></div>`;
   }).join("") + `<p style="color:var(--faint);font-size:11px;margin:8px 0 0">High/low = ${W ? "average of all sources, weighted so the most accurate ones count more (switch on the Compare tab)" : "average of all sources"}. Thin marks = the coldest low and warmest high any source predicts. Dot = how well the sources agree (green good, yellow fair, red they disagree). Click a day for details.</p>`;
@@ -538,7 +602,14 @@ function renderMonth() {
   for (const r of D.verify || []) if (r.actual && r.actual.hi != null && r.date < today) act[r.date] = r;
   const g = D.gauges?.t_today;
   // the months there's something to show: the oldest measured day through the last forecast day
-  const first = [today, ...Object.keys(act)].sort()[0].slice(0, 7), last = D.days[D.days.length - 1].date.slice(0, 7);
+  const NM = D.normals || {}, OL = D.outlook || {};
+  const normOf = ds => NM[ds.slice(5)];
+  const normTxt = ds => { const nn = normOf(ds); return nn ? `\nNormal for this date: high ${f0(nn.hi)}°, low ${f0(nn.lo)}°.` : ""; };
+  // with normals the calendar goes on past the forecast: through next month, or as far as the outlook reaches
+  const nextMonth = (() => { const t = new Date(today + "T12:00"); return ymd(new Date(t.getFullYear(), t.getMonth() + 1, 1)).slice(0, 7); })();
+  const first = [today, ...Object.keys(act)].sort()[0].slice(0, 7);
+  const last = [D.days[D.days.length - 1].date.slice(0, 7), ...(Object.keys(NM).length ? [nextMonth, ...Object.keys(OL).map(k => k.slice(0, 7))] : [])].sort().pop();
+  let hasNormals = false;
   if (!calMonth || calMonth < first || calMonth > last) calMonth = today.slice(0, 7);
   const [y, m] = calMonth.split("-").map(Number);
   const start = new Date(y, m - 1, 1); start.setDate(1 - start.getDay());
@@ -569,31 +640,44 @@ function renderMonth() {
     const dn = `<div class="dn">${d.getDate()}</div>`;
     if (fc[ds] != null) {
       const i = fc[ds], x = D.days[i], dd = D.detail_days[ds] || {};
-      const txt = (x.by["NWS (official)"] || {}).text || dd.text || "";
+      const txt = dayText(x, dd), fl = dayFlags(x);
       const isToday = ds === today;
       const wet = dd.snow >= 0.1 ? `❄ ${dd.snow.toFixed(1)}"` : x.pop ? `${x.pop}%` : "";
-      const tip = `${long}${isToday ? " (today)" : ""}\n${txt ? txt + "\n" : ""}` +
+      const tip = `${long}${isToday ? " (today)" : ""}\n${txt ? txt + "\n" : ""}${fl.lines.map(l => "⚠ " + l + "\n").join("")}` +
         `Forecast high ${f0(x.hi)}°, low ${f0(x.lo)}° (${W ? "weighted " : ""}average of ${x.hi_n || Object.keys(x.by).length} sources; ` +
         `highs ${f0(x.hi_min)}–${f0(x.hi_max)}°, lows ${f0(x.lo_min)}–${f0(x.lo_max)}°)\n` +
         (x.pop ? `Chance of rain or snow ${x.pop}%` + (dd.snow ? `, snow about ${dd.snow.toFixed(1)}"` : dd.precip ? `, about ${dd.precip.toFixed(2)}"` : "") + "\n" : "") +
         (x.agree ? `Sources agree: ${agreeTxt[x.agree]}\n` : "") +
         (isToday && g ? `Measured so far today: high ${f0(g.hi)}°, low ${f0(g.lo)}°\n` : "") +
-        `Click for the details on the 16-Day tab.` + ext(x.hi, x.lo, out, true).t;
+        normTxt(ds).slice(1) + `\nClick for the details on the 16-Day tab.` + ext(x.hi, x.lo, out, true).t;
       const e = ext(x.hi, x.lo, out, true);
       cells += `<div class="c fc${out}${isToday ? " today" : ""}${e.c}" data-i="${i}" title="${esc(tip)}"><div class="dn">${d.getDate()}${e.b}</div><div class="ic">${icon(x.icon, 20)}</div>
         <div class="t"><span class="h${e.h}">${f0(x.hi)}°</span> <span class="l${e.l}">${f0(x.lo)}°</span></div>
-        <div class="p">${wet}</div>${isToday && g ? `<div class="m">so far ${f0(g.hi)}/${f0(g.lo)}</div>` : ""}
+        <div class="p">${fl.html}${wet}</div>${isToday && g ? `<div class="m">so far ${f0(g.hi)}/${f0(g.lo)}</div>` : ""}
         <div class="strip" style="background:linear-gradient(90deg,${tempColor(x.lo)},${tempColor(x.hi)})"></div></div>`;
     } else if (act[ds]) {
       const r = act[ds], fh = wavg(r.fc, "hi"), fl = wavg(r.fc, "lo");
       const miss = fh != null && fl != null ? (Math.abs(fh - r.actual.hi) + Math.abs(fl - r.actual.lo)) / 2 : null;
       const tip = `${long}\nMeasured by your station: high ${r.actual.hi.toFixed(1)}°F, low ${r.actual.lo.toFixed(1)}°F.` +
-        (fh != null ? `\nForecast the day before (${W ? "weighted " : ""}average of the sources): high ${f0(fh)}°, low ${f0(fl)}°, off by ${miss.toFixed(1)}° on average.` : "");
+        (fh != null ? `\nForecast the day before (${W ? "weighted " : ""}average of the sources): high ${f0(fh)}°, low ${f0(fl)}°, off by ${miss.toFixed(1)}° on average.` : "") + normTxt(ds);
       const e = ext(r.actual.hi, r.actual.lo, out, false);
       cells += `<div class="c past${out}${e.c}" title="${esc(tip + e.t)}"><div class="dn">${d.getDate()}${e.b}</div>
         <div class="t"><span class="h${e.h}">${f0(r.actual.hi)}°</span> <span class="l${e.l}">${f0(r.actual.lo)}°</span></div>
         <div class="m">measured${miss != null ? `<br>forecast ±${miss.toFixed(0)}°` : ""}</div>
         <div class="strip" style="background:linear-gradient(90deg,${tempColor(r.actual.lo)},${tempColor(r.actual.hi)});opacity:.5"></div></div>`;
+    } else if (ds > today && normOf(ds)) {
+      // beyond the forecast: the normal for the date, plus the seasonal outlook's lean for that week
+      hasNormals = true;
+      const nn = normOf(ds), ol = OL[ds], lean = ol?.lean;
+      const tip = `${long}\nBeyond the 16-day forecast: no forecast for single days this far out.\n` +
+        `Normal for this date: high ${f0(nn.hi)}°, low ${f0(nn.lo)}° (average of 1991–2020 for your area).\n` +
+        `Rain or snow fell on ${nn.pop}% of these dates` + (nn.snow >= 0.1 ? `, about ${nn.snow.toFixed(1)}" of snow on average.` : ".") +
+        (ol ? `\nSeasonal outlook for the week around it: ${ol.share}% of its 51 runs are warmer than normal (on average ${ol.anom > 0 ? "+" : ""}${ol.anom.toFixed(1)}°). ` +
+          (lean ? `It leans ${lean.toUpperCase()} than normal.` : `No clear lean either way.`) : "") +
+        `\nOutlooks this far ahead show only whether a week is likely warmer or colder than usual, not daily weather.`;
+      cells += `<div class="c norm${out}" title="${esc(tip)}">${dn}
+        <div class="t"><span class="h">${f0(nn.hi)}°</span> <span class="l">${f0(nn.lo)}°</span></div>
+        <div class="m">normal</div>${lean && !out ? `<div class="lean ${lean}">${lean === "warmer" ? "↗ warmer" : "↘ colder"}</div>` : ""}</div>`;
     } else {
       cells += `<div class="c none${out}" title="${esc(long + (ds > today ? "\nBeyond the 16-day forecast." : "\nNo record for this day."))}">${dn}</div>`;
     }
@@ -604,7 +688,9 @@ function renderMonth() {
       <span class="legend" title="${esc("Forecast days show the high and low (the same averages as the 16-Day tab), an icon and the chance of rain or snow (or the snow amount). " +
         "Past days show what your station measured, grey, with how far the day-before forecast was off.\nThe coloured strip runs from the low's colour to the high's: purple below 10°, blue below 32°, teal below 50°, green below 70°, orange below 85°, red above.\nRed ▲ = the month's warmest high, blue ▼ = its coldest low, counting both measured and forecast days (shown only for days in the month).\nHover a day for more; click a forecast day for its details.")}">
       <span style="color:var(--warm)">high</span> <span style="color:var(--cold)">low</span> · <span style="color:var(--rain)">rain/snow</span> · <span style="color:var(--dim)">grey = measured</span> · <span style="display:inline-block;padding:0 3px;border-radius:3px;font-size:9px;color:#fff;background:#d9443a">▲</span> max <span style="display:inline-block;padding:0 3px;border-radius:3px;font-size:9px;color:#fff;background:#2a74c9">▼</span> min ⓘ</span></div>
-    <div class="cal">${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(w => `<div class="wd">${w}</div>`).join("")}${cells}</div>`;
+    <div class="cal">${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(w => `<div class="wd">${w}</div>`).join("")}${cells}</div>
+    ${hasNormals ? `<p class="calnote">Faded days are past the 16-day forecast: the <b>normal</b> high and low for the date (1991–2020).
+      <span style="color:var(--warm)">↗ warmer</span> / <span style="color:var(--cold)">↘ colder</span> = the seasonal outlook leans that way for that week; no arrow = no clear lean.</p>` : ""}`;
 }
 document.addEventListener("click", e => {
   const mb = e.target.closest("#t-month .mb");
@@ -791,7 +877,10 @@ function renderSources() {
       : s.state === "no key" ? `${/accuweather/i.test(k) ? "key needed" : "free key needed"} · <a href="${s.signup}" target="_blank">sign up</a>`
       : esc(s.error || s.state) + (s.retry ? ` · tries again ${hm(new Date(s.retry * 1000).toISOString())}` : "");
     return `<div class="src"><div class="dot" style="background:${col}"></div><div>${k}${s.keyed ? ' <small style="color:var(--faint)">(key)</small>' : ""}</div><div class="note">${note}</div><div>${forecasts.has(k) ? accBadge(k, A) : ""}</div></div>`;
-  }).join("") + `<p style="color:var(--faint);font-size:11px">To add or change a key: right-click the panel → <b>Edit API keys…</b>, paste it, save. It's used from the next refresh. Radar: RainViewer. Map: Esri.</p>`;
+  }).join("") + `<p style="color:var(--faint);font-size:11px">To add or change a key: right-click the panel → <b>Edit API keys…</b>, paste it, save. It's used from the next refresh. Radar: RainViewer. Map: Esri.</p>` +
+    [S["Visual Crossing"]?.state && S["Visual Crossing"].state !== "no key" ? `Weather Data Provided by <a href="https://www.visualcrossing.com/" target="_blank">Visual Crossing</a>` : "",
+     S["Tomorrow.io"]?.state && S["Tomorrow.io"].state !== "no key" ? `Powered by <a href="https://www.tomorrow.io/" target="_blank">Tomorrow.io</a>` : ""]
+      .filter(Boolean).map(c => `<p class="credit">${c}</p>`).join("");
 }
 
 // ---------------------------------------------------------------- gauges (barometer / thermometer)
@@ -1239,6 +1328,72 @@ function setLocked(on) {
   $("mLock").textContent = on ? "Unlock position" : "Lock position";
 }
 function setZoom(z) { document.body.style.zoom = z; }
+
+// ---------------------------------------------------------------- in-panel tooltips
+// Every title="…" (and SVG <title>) is shown in our own box, kept inside the panel, instead of
+// Windows' tooltip. The text moves to data-tip on first hover so Windows' tooltip never appears.
+const ttip = $("ttip");
+let ttEl = null, ttTimer = null, ttXY = [0, 0];
+function tipSource(node) {
+  for (let el = node; el && el !== document.body; el = el.parentElement || el.parentNode) {
+    if (!(el instanceof Element)) continue;
+    if (el.hasAttribute("title")) { el.dataset.tip = el.getAttribute("title"); el.removeAttribute("title"); }
+    const st = el.querySelector?.(":scope > title");
+    if (st) { el.dataset.tip = st.textContent; st.remove(); }
+    if (el.dataset?.tip) return el;
+  }
+  return null;
+}
+function placeTip() {
+  const z = +document.body.style.zoom || 1, vw = innerWidth / z, vh = innerHeight / z, [x, y] = ttXY;
+  const w = ttip.offsetWidth, h = ttip.offsetHeight;
+  let left = x + 12, top = y + 16;
+  if (left + w > vw - 4) left = Math.max(4, x - w - 8);        // flip to the left of the mouse
+  if (left + w > vw - 4) left = Math.max(4, vw - w - 4);
+  if (top + h > vh - 4) top = Math.max(4, y - h - 10);           // flip above the mouse
+  ttip.style.left = left + "px"; ttip.style.top = top + "px";
+}
+function hideTip() { clearTimeout(ttTimer); ttip.style.display = "none"; ttEl = null; }
+// The panel redraws every 15 s with fresh title="…" text. Move every title out of Windows' reach
+// the moment it appears (otherwise, with the mouse resting still, Windows shows its own tooltip
+// as well), and keep an open tooltip on whatever is now under the mouse.
+function stripTitles(root) {
+  if (!(root instanceof Element)) return;
+  const els = [root, ...root.querySelectorAll("[title]")];
+  for (const el of els) if (el.hasAttribute("title")) { el.dataset.tip = el.getAttribute("title"); el.removeAttribute("title"); }
+  for (const t of (root.tagName.toLowerCase() === "title" ? [root] : root.querySelectorAll("title"))) {
+    const p = t.parentElement;
+    if (p && p !== document.head && p.namespaceURI === "http://www.w3.org/2000/svg") { p.dataset.tip = t.textContent; t.remove(); }
+  }
+}
+new MutationObserver(muts => {
+  for (const m of muts) {
+    if (m.type === "attributes") stripTitles(m.target);
+    else m.addedNodes.forEach(stripTitles);
+  }
+  if (ttEl && !ttEl.isConnected) {          // redrawn under the mouse: follow the new element
+    const shown = ttip.style.display === "block", z = +document.body.style.zoom || 1;
+    const el = tipSource(document.elementFromPoint(ttXY[0] * z, ttXY[1] * z));
+    if (el && shown) { ttEl = el; ttip.textContent = el.dataset.tip; placeTip(); } else hideTip();
+  }
+}).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["title"] });
+stripTitles(document.body);
+document.addEventListener("mousemove", e => {
+  const z = +document.body.style.zoom || 1;
+  ttXY = [e.clientX / z, e.clientY / z];
+  if ($("tip").style.display === "block") { hideTip(); return; }      // the hourly chart shows its own
+  const el = tipSource(e.target);
+  if (el !== ttEl || (ttEl && !ttEl.isConnected)) {
+    hideTip();
+    if (!el) return;
+    ttEl = el;
+    ttTimer = setTimeout(() => { if (ttEl !== el) return;
+      ttip.textContent = el.dataset.tip; ttip.style.display = "block"; placeTip(); }, 350);
+  } else if (ttip.style.display === "block") placeTip();
+});
+document.addEventListener("mouseleave", hideTip);
+document.addEventListener("mousedown", hideTip);
+document.addEventListener("wheel", hideTip, { passive: true });
 // Called by the app when you click a weather-alert notification: open the alert text.
 function openAlerts() { document.querySelectorAll(".alert").forEach(a => a.classList.add("open")); }
 
@@ -1384,6 +1539,12 @@ load().then(() => {   // ?tab=daily / ?compact: open that way (used for screensh
   if (Q.get("tabh")) setTabHeight(+Q.get("tabh"), false, true);
   if (Q.get("span")) { hourSpan = +Q.get("span"); renderHourly(); }
   if (Q.get("cal")) { calMonth = Q.get("cal"); renderMonth(); }
+  if (Q.get("tiphover")) setTimeout(() => {     // preview: hover the n-th element matching a selector
+    const [sel, n] = Q.get("tiphover").split("@"), el = document.querySelectorAll(sel)[+n || 0];
+    if (!el) return;
+    const r = el.getBoundingClientRect(), z = +document.body.style.zoom || 1;
+    el.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: (r.left + r.width / 2) * z, clientY: (r.top + r.height / 2) * z }));
+  }, 300);
   if (Q.get("open")) $("dd" + Q.get("open"))?.classList.add("open");
   if (Q.get("hover")) {   // show the hourly tooltip at hour N
     const svg = $("hsvg"), r = svg.getBoundingClientRect(), n = Math.min(hourSpan, D.hourly.length);
