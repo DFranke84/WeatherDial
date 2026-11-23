@@ -47,6 +47,11 @@ forecasters' discussion). Elsewhere everything else still works.
   moment.
 - **16-Day:** the average of all sources for each day (weighted by accuracy, see below), with a coloured dot for how well they
   agree. Hover a day's bar for what the bar, its colours and the end ticks mean.
+- **Month:** a calendar. Forecast days show the icon, high/low (the same averages as 16-Day),
+  chance of rain or snow (or the snow amount) and a colour strip; past days show what your
+  station measured, with how far the day-before forecast was off. A red ▲ marks the month's
+  warmest high and a blue ▼ its coldest low. ‹ › change month; hover a day for more; click a
+  forecast day to open it on the 16-Day tab.
 - **Compare:** every source's highs and lows side by side, plus the current readings from
   your station, the nearest airport and the model.
 - **Accuracy** (Compare and Sources): a badge per source showing how close its next-day
@@ -107,9 +112,9 @@ forecasters' discussion). Elsewhere everything else still works.
 |---|---|---|
 | ![Barometer](docs/screenshots/gauges-classic-big.png) | ![Dials](docs/screenshots/gauges-light.png) | ![Help](docs/screenshots/gauges-help.png) |
 
-| Gauges: Tubes | Gauges: 72 h graphs |
-|---|---|
-| ![Tubes](docs/screenshots/gauges-tubes.png) | ![Graphs](docs/screenshots/gauges-graphs.png) |
+| Gauges: Tubes | Gauges: 72 h graphs | Month calendar |
+|---|---|---|
+| ![Tubes](docs/screenshots/gauges-tubes.png) | ![Graphs](docs/screenshots/gauges-graphs.png) | ![Month](docs/screenshots/month.png) |
 
 The optional parts (MinuteCast, Health, lightning and so on) appear only when their key
 allows them. Without any keys the panel looks like the last picture and still works fully.
@@ -212,7 +217,9 @@ to the Tempest settings after restarting WeatherDial.
   follows Windows' own light/dark setting and changes with it. The radar map has a light
   and a dark version too.
 - **Right-click** the panel for its menu: Lock position, Compact / Full size, Small / Medium /
-  Large, Refresh now, Edit API keys…, Edit location…, Close WeatherDial.
+  Large, Theme, Refresh now, Edit API keys…, Edit location…, **Restart WeatherDial** (close and
+  start again, e.g. after updating its files or changing a setting that needs a restart), Close
+  WeatherDial.
 - **The tray icon** (a sun and cloud, with a red ⚠ while a weather alert is active) has the
   same options, plus **Show weather alerts**, **Test alert notification** and **Start with
   Windows**.
@@ -352,7 +359,7 @@ The **Sources** tab shows how long ago each source was last downloaded.
 - **"No broadcast heard from a Tempest hub yet"** (Sources tab): Windows' firewall is blocking
   Python, or the PC isn't on the same network as the hub. Open *Windows Security → Firewall &
   network protection → Allow an app through firewall*, find **Python** and tick **Private**.
-  Then right-click the tray icon → Close WeatherDial and run `Start.bat`. Until then, "Now"
+  Then right-click the panel or the tray icon → **Restart WeatherDial**. Until then, "Now"
   comes from the Tempest cloud (with the token) or the nearest airport.
 - **The location is wrong:** run `Install.bat` again and paste the right numbers.
 - **No alert notifications:** check `alert_notify` in `config.json` isn't `"off"`, and that

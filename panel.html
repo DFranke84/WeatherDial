@@ -76,7 +76,7 @@
   .stat .v small { font-weight: 400; color: var(--dim); }
 
   nav { display: flex; border-bottom: 1px solid var(--line); }
-  nav div { flex: 1; text-align: center; padding: 6px 0; color: var(--dim); cursor: pointer; border-bottom: 2px solid transparent; }
+  nav div { flex: 1 1 auto; text-align: center; padding: 6px 3px; font-size: 12.5px; white-space: nowrap; color: var(--dim); cursor: pointer; border-bottom: 2px solid transparent; }
   nav div:hover { color: var(--text); }
   nav div.on { color: var(--text); border-bottom-color: var(--accent); }
   .tab { display: none; padding: 8px 12px 10px; height: var(--tabh, 360px); overflow-y: auto; }
@@ -110,6 +110,32 @@
   .day .txt { color: var(--dim); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .day .pop { color: var(--rain); text-align: right; }
   .day .lo { color: var(--cold); text-align: right; } .day .hi { color: var(--warm); }
+  .calbar { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+  .calbar .mb { cursor: pointer; color: var(--dim); padding: 0 7px; border: 1px solid var(--edge); border-radius: 4px; }
+  .calbar .mb:hover { color: var(--text); background: var(--hover2); }
+  .calbar .mb.off { visibility: hidden; }
+  .calbar b { min-width: 118px; text-align: center; }
+  .cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+  .cal .wd { text-align: center; color: var(--faint); font-size: 11px; }
+  .cal .c { position: relative; min-height: 62px; padding: 2px 4px 6px; border-radius: 5px; background: var(--hover2);
+            font-size: 11px; overflow: hidden; cursor: help; }
+  .cal .c.fc { cursor: pointer; } .cal .c.fc:hover { background: var(--sel); }
+  .cal .c.out { opacity: .4; }
+  .cal .c.none { background: transparent; border: 1px dashed var(--line); cursor: default; }
+  .cal .c.today { box-shadow: inset 0 0 0 1.5px var(--accent); }
+  .cal .dn { color: var(--dim); font-weight: 600; }
+  .cal .today .dn { color: var(--accent); }
+  .cal .ic { position: absolute; top: 2px; right: 2px; }
+  .cal .t { margin-top: 10px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+  .cal .t .h { color: var(--warm); } .cal .t .l { color: var(--cold); font-weight: 400; }
+  .cal .past .t .h, .cal .past .t .l { color: var(--dim); }
+  .cal .p { color: var(--rain); font-size: 10px; white-space: nowrap; }
+  .cal .m { color: var(--faint); font-size: 10px; }
+  .cal .xb { display: inline-block; margin-left: 3px; padding: 0 3px; border-radius: 3px; font-size: 9px; line-height: 13px; color: #fff; vertical-align: 1px; }
+  .cal .xb.hot { background: #d9443a; } .cal .xb.cold { background: #2a74c9; }
+  .cal .t .xhi, .cal .past .t .xhi { color: #fff; background: #d9443a; border-radius: 3px; padding: 0 2px; }
+  .cal .t .xlo, .cal .past .t .xlo { color: #fff; background: #2a74c9; border-radius: 3px; padding: 0 2px; font-weight: 600; }
+  .cal .strip { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; }
   .bar { position: relative; height: 6px; background: var(--track); border-radius: 3px; cursor: help; }
   .bar::before { content: ""; position: absolute; inset: -9px 0; }   /* a taller area for the tooltip */
   .bar .rng { position: absolute; top: 0; height: 6px; border-radius: 3px; }
@@ -202,11 +228,12 @@
   <div class="stats" id="stats"></div>
   <div class="mini3" id="mini3"></div>
   <nav id="nav">
-    <div data-t="hourly" class="on">Hourly</div><div data-t="daily">16-Day</div><div data-t="compare">Compare</div>
+    <div data-t="hourly" class="on">Hourly</div><div data-t="daily">16-Day</div><div data-t="month">Month</div><div data-t="compare">Compare</div>
     <div data-t="radar">Radar</div><div data-t="gauges">Gauges</div><div data-t="health" id="navHealth" hidden>Health</div><div data-t="afd">Forecaster</div><div data-t="sources">Sources</div>
   </nav>
   <div class="tab on" id="t-hourly"></div>
   <div class="tab" id="t-daily"></div>
+  <div class="tab" id="t-month"></div>
   <div class="tab" id="t-compare"></div>
   <div class="tab" id="t-radar"><div id="radar"></div><div style="margin-top:6px;color:var(--dim)" id="radarInfo"></div></div>
   <div class="tab" id="t-gauges"></div>
@@ -233,6 +260,7 @@
   <div data-act="edit_keys">Edit API keys…</div>
   <div data-act="edit_location">Edit location…</div>
   <hr>
+  <div data-act="restart" title="Close and start again, e.g. after updating WeatherDial's files">Restart WeatherDial</div>
   <div data-act="quit">Close WeatherDial</div>
 </div>
 <script>
@@ -357,7 +385,7 @@ function render() {
 
   renderMinuteCast(); renderHealth(); renderGauges();
   if ($("t-radar").classList.contains("on")) radar();   // keeps an open radar tab current
-  renderHourly(); renderDaily(); renderCompare(); renderAfd(); renderSources();
+  renderHourly(); renderDaily(); renderMonth(); renderCompare(); renderAfd(); renderSources();
 }
 
 // ---------------------------------------------------------------- optional AccuWeather extras
@@ -498,6 +526,94 @@ function renderDaily() {
       <table>${srcRows}</table></div>`;
   }).join("") + `<p style="color:var(--faint);font-size:11px;margin:8px 0 0">High/low = ${W ? "average of all sources, weighted so the most accurate ones count more (switch on the Compare tab)" : "average of all sources"}. Thin marks = the coldest low and warmest high any source predicts. Dot = how well the sources agree (green good, yellow fair, red they disagree). Click a day for details.</p>`;
 }
+// ---------------------------------------------------------------- month calendar
+// Forecast days (the same averages as 16-Day) on a calendar, and for past days what your station
+// measured. Click a forecast day for its details on the 16-Day tab.
+let calMonth = null;     // "YYYY-MM" being shown; null = this month
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function renderMonth() {
+  if (!D.days.length) return;
+  const today = D.days[0].date, fc = {}, act = {};
+  D.days.forEach((d, i) => fc[d.date] = i);
+  for (const r of D.verify || []) if (r.actual && r.actual.hi != null && r.date < today) act[r.date] = r;
+  const g = D.gauges?.t_today;
+  // the months there's something to show: the oldest measured day through the last forecast day
+  const first = [today, ...Object.keys(act)].sort()[0].slice(0, 7), last = D.days[D.days.length - 1].date.slice(0, 7);
+  if (!calMonth || calMonth < first || calMonth > last) calMonth = today.slice(0, 7);
+  const [y, m] = calMonth.split("-").map(Number);
+  const start = new Date(y, m - 1, 1); start.setDate(1 - start.getDay());
+  const end = new Date(y, m, 0); end.setDate(end.getDate() + 6 - end.getDay());
+  const wavg = (fcs, k) => { let s = 0, w = 0;
+    for (const [src, v] of Object.entries(fcs || {})) if (v[k] != null) { const x = W ? (W[src] ?? W._typical) : 1; s += v[k] * x; w += x; }
+    return w ? s / w : null; };
+  const agreeTxt = { good: "good (all within 5°)", fair: "fair (within 10°)", low: "low (more than 10° apart)" };
+  // the month's warmest high and coldest low (measured days and forecast days alike; ties all marked)
+  const inMonth = [];
+  for (let dd = new Date(y, m - 1, 1); dd.getMonth() === m - 1; dd.setDate(dd.getDate() + 1)) {
+    const ds = ymd(dd);
+    if (fc[ds] != null) inMonth.push([Math.round(D.days[fc[ds]].hi), Math.round(D.days[fc[ds]].lo)]);
+    else if (act[ds]) inMonth.push([Math.round(act[ds].actual.hi), Math.round(act[ds].actual.lo)]);
+  }
+  const topHi = inMonth.length ? Math.max(...inMonth.map(v => v[0])) : null, botLo = inMonth.length ? Math.min(...inMonth.map(v => v[1])) : null;
+  const mName = new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long" });
+  const ext = (hi, lo, out, fcst) => {      // badges, tooltip lines and number classes for this day
+    if (out) return { b: "", t: "", h: "", l: "", c: "" };
+    const isHi = Math.round(hi) === topHi, isLo = Math.round(lo) === botLo, w = fcst ? " (forecast)" : " (measured)";
+    return { b: (isHi ? `<span class="xb hot" title="Warmest high in ${mName}">▲</span>` : "") + (isLo ? `<span class="xb cold" title="Coldest low in ${mName}">▼</span>` : ""),
+             t: (isHi ? `\n▲ Warmest high of ${mName}${w}.` : "") + (isLo ? `\n▼ Coldest low of ${mName}${w}.` : ""),
+             h: isHi ? " xhi" : "", l: isLo ? " xlo" : "", c: isHi || isLo ? " xday" : "" };
+  };
+  let cells = "";
+  for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const ds = ymd(d), out = d.getMonth() !== m - 1 ? " out" : "", long = d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+    const dn = `<div class="dn">${d.getDate()}</div>`;
+    if (fc[ds] != null) {
+      const i = fc[ds], x = D.days[i], dd = D.detail_days[ds] || {};
+      const txt = (x.by["NWS (official)"] || {}).text || dd.text || "";
+      const isToday = ds === today;
+      const wet = dd.snow >= 0.1 ? `❄ ${dd.snow.toFixed(1)}"` : x.pop ? `${x.pop}%` : "";
+      const tip = `${long}${isToday ? " (today)" : ""}\n${txt ? txt + "\n" : ""}` +
+        `Forecast high ${f0(x.hi)}°, low ${f0(x.lo)}° (${W ? "weighted " : ""}average of ${x.hi_n || Object.keys(x.by).length} sources; ` +
+        `highs ${f0(x.hi_min)}–${f0(x.hi_max)}°, lows ${f0(x.lo_min)}–${f0(x.lo_max)}°)\n` +
+        (x.pop ? `Chance of rain or snow ${x.pop}%` + (dd.snow ? `, snow about ${dd.snow.toFixed(1)}"` : dd.precip ? `, about ${dd.precip.toFixed(2)}"` : "") + "\n" : "") +
+        (x.agree ? `Sources agree: ${agreeTxt[x.agree]}\n` : "") +
+        (isToday && g ? `Measured so far today: high ${f0(g.hi)}°, low ${f0(g.lo)}°\n` : "") +
+        `Click for the details on the 16-Day tab.` + ext(x.hi, x.lo, out, true).t;
+      const e = ext(x.hi, x.lo, out, true);
+      cells += `<div class="c fc${out}${isToday ? " today" : ""}${e.c}" data-i="${i}" title="${esc(tip)}"><div class="dn">${d.getDate()}${e.b}</div><div class="ic">${icon(x.icon, 20)}</div>
+        <div class="t"><span class="h${e.h}">${f0(x.hi)}°</span> <span class="l${e.l}">${f0(x.lo)}°</span></div>
+        <div class="p">${wet}</div>${isToday && g ? `<div class="m">so far ${f0(g.hi)}/${f0(g.lo)}</div>` : ""}
+        <div class="strip" style="background:linear-gradient(90deg,${tempColor(x.lo)},${tempColor(x.hi)})"></div></div>`;
+    } else if (act[ds]) {
+      const r = act[ds], fh = wavg(r.fc, "hi"), fl = wavg(r.fc, "lo");
+      const miss = fh != null && fl != null ? (Math.abs(fh - r.actual.hi) + Math.abs(fl - r.actual.lo)) / 2 : null;
+      const tip = `${long}\nMeasured by your station: high ${r.actual.hi.toFixed(1)}°F, low ${r.actual.lo.toFixed(1)}°F.` +
+        (fh != null ? `\nForecast the day before (${W ? "weighted " : ""}average of the sources): high ${f0(fh)}°, low ${f0(fl)}°, off by ${miss.toFixed(1)}° on average.` : "");
+      const e = ext(r.actual.hi, r.actual.lo, out, false);
+      cells += `<div class="c past${out}${e.c}" title="${esc(tip + e.t)}"><div class="dn">${d.getDate()}${e.b}</div>
+        <div class="t"><span class="h${e.h}">${f0(r.actual.hi)}°</span> <span class="l${e.l}">${f0(r.actual.lo)}°</span></div>
+        <div class="m">measured${miss != null ? `<br>forecast ±${miss.toFixed(0)}°` : ""}</div>
+        <div class="strip" style="background:linear-gradient(90deg,${tempColor(r.actual.lo)},${tempColor(r.actual.hi)});opacity:.5"></div></div>`;
+    } else {
+      cells += `<div class="c none${out}" title="${esc(long + (ds > today ? "\nBeyond the 16-day forecast." : "\nNo record for this day."))}">${dn}</div>`;
+    }
+  }
+  const title = new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  $("t-month").innerHTML = `<div class="calbar"><span class="mb${calMonth <= first ? " off" : ""}" data-m="-1" title="Previous month">‹</span>
+      <b>${title}</b><span class="mb${calMonth >= last ? " off" : ""}" data-m="1" title="Next month">›</span>
+      <span class="legend" title="${esc("Forecast days show the high and low (the same averages as the 16-Day tab), an icon and the chance of rain or snow (or the snow amount). " +
+        "Past days show what your station measured, grey, with how far the day-before forecast was off.\nThe coloured strip runs from the low's colour to the high's: purple below 10°, blue below 32°, teal below 50°, green below 70°, orange below 85°, red above.\nRed ▲ = the month's warmest high, blue ▼ = its coldest low, counting both measured and forecast days (shown only for days in the month).\nHover a day for more; click a forecast day for its details.")}">
+      <span style="color:var(--warm)">high</span> <span style="color:var(--cold)">low</span> · <span style="color:var(--rain)">rain/snow</span> · <span style="color:var(--dim)">grey = measured</span> · <span style="display:inline-block;padding:0 3px;border-radius:3px;font-size:9px;color:#fff;background:#d9443a">▲</span> max <span style="display:inline-block;padding:0 3px;border-radius:3px;font-size:9px;color:#fff;background:#2a74c9">▼</span> min ⓘ</span></div>
+    <div class="cal">${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(w => `<div class="wd">${w}</div>`).join("")}${cells}</div>`;
+}
+document.addEventListener("click", e => {
+  const mb = e.target.closest("#t-month .mb");
+  if (mb) { const [y, m] = calMonth.split("-").map(Number), d = new Date(y, m - 1 + +mb.dataset.m, 1);
+    calMonth = ymd(d).slice(0, 7); renderMonth(); return; }
+  const c = e.target.closest("#t-month .c.fc");
+  if (c) { showTab("daily"); app()?.remember("tab", "daily");
+    const box = $("dd" + c.dataset.i); box.classList.add("open"); box.previousElementSibling.scrollIntoView({ block: "start" }); }
+});
 function periodDate(p) {
   // NWS period names: "Today", "Tonight", "Wednesday", "Wednesday Night"...
   const base = new Date(D.updated); const names = D.days.map(d => d.date);
@@ -1267,6 +1383,7 @@ load().then(() => {   // ?tab=daily / ?compact: open that way (used for screensh
   if (Q.get("theme")) setTheme(Q.get("theme"), false);
   if (Q.get("tabh")) setTabHeight(+Q.get("tabh"), false, true);
   if (Q.get("span")) { hourSpan = +Q.get("span"); renderHourly(); }
+  if (Q.get("cal")) { calMonth = Q.get("cal"); renderMonth(); }
   if (Q.get("open")) $("dd" + Q.get("open"))?.classList.add("open");
   if (Q.get("hover")) {   // show the hourly tooltip at hour N
     const svg = $("hsvg"), r = svg.getBoundingClientRect(), n = Math.min(hourSpan, D.hourly.length);

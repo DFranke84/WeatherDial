@@ -348,6 +348,16 @@ class Api:
         self.notify("Test: Winter Storm Warning until 6:00 AM",
                     "This is what a weather alert notification looks like. Click it to bring up the panel.")
 
+    def restart(self):
+        """Close and start again (picks up changed program files). The new copy waits until
+        this one has closed and freed the port."""
+        pyw = Path(sys.executable).with_name("pythonw.exe")
+        subprocess.Popen([str(pyw if pyw.exists() else sys.executable), str(HERE / "app.py"), "--restarted"],
+                         cwd=str(HERE), close_fds=True,
+                         creationflags=0x00000008 | 0x00000200)   # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        note("Restarting WeatherDial.")
+        self.quit()
+
     def quit(self):
         if self._tray:
             self._tray.Visible = False
@@ -559,6 +569,7 @@ def tray_icon(api):
         start.Click += EventHandler(toggle)
         menu.Items.Add(start)
         menu.Items.Add(ToolStripSeparator())
+        menu.Items.Add("Restart WeatherDial").Click += later(api.restart)
         menu.Items.Add("Close WeatherDial").Click += later(api.quit)
         tray = NotifyIcon()
         api._icons = {"normal": draw(), "alert": draw(True)}
@@ -611,9 +622,15 @@ def log_to_file():
 if __name__ == "__main__":
     if sys.stdout is None:
         log_to_file()
-    try:
-        server = Server(("127.0.0.1", PORT), Handler)
-    except OSError:
+    server = None
+    # After "Restart WeatherDial" the old copy may take a few seconds to close: keep trying.
+    for _ in range(60 if "--restarted" in sys.argv else 1):
+        try:
+            server = Server(("127.0.0.1", PORT), Handler)
+            break
+        except OSError:
+            time.sleep(0.5)
+    if server is None:
         note("Not started: WeatherDial is already running.")
         sys.exit(0)
     added = weather.complete_config(HERE / "config.json")   # show every setting in config.json
