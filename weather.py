@@ -1092,6 +1092,7 @@ def src_visualcrossing(cfg, keys, clock):
                       # free extras: a one-line description, the kind of precipitation, snow
                       # (falling and on the ground, inches) and the severe-storm risk (0-100)
                       "desc": x.get("description"), "ptype": x.get("preciptype") or None,
+                      "desc_icon": text_icon(x.get("description")),   # an icon that matches the description
                       "snow": x.get("snow"), "snowdepth": x.get("snowdepth"), "severe": x.get("severerisk"),
                       # the day's type lists anything possible in any hour; count only hours where
                       # freezing rain / ice is listed and precipitation is reasonably likely
@@ -1238,7 +1239,7 @@ def consensus(forecasts, field_days):
                 if d["date"] == date:
                     row["by"][name] = {k: d.get(k) for k in ("hi", "lo", "pop", "precip", "text", "icon")}
                     # extras only some sources give (Visual Crossing): kept when present
-                    row["by"][name].update({k: d[k] for k in ("desc", "ptype", "snow", "snowdepth", "severe", "ice_hours", "ice", "sdepth")
+                    row["by"][name].update({k: d[k] for k in ("desc", "desc_icon", "ptype", "snow", "snowdepth", "severe", "ice_hours", "ice", "sdepth")
                                             if d.get(k) is not None})
         for k in ("hi", "lo", "pop"):
             vals = [v[k] for v in row["by"].values() if v.get(k) is not None]

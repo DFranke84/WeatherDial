@@ -411,7 +411,7 @@ function render() {
     ["Lightning", strikes, "extra"],
   ];
   $("stats").innerHTML = stats.map(([k, v, c, tip]) => `<div class="stat ${c || ""}"${tip ? ` title="${esc(tip)}"` : ""}><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
-  $("mini3").innerHTML = D.days.slice(0, 4).map((d, i) => `<div>${i ? dayName(d.date) : "Today"}<br>${icon(d.icon, 26)}<br>
+  $("mini3").innerHTML = D.days.slice(0, 4).map((d, i) => `<div>${i ? dayName(d.date) : "Today"}<br>${icon(dayIcon(d), 26)}<br>
     <span style="color:var(--warm)">${f0(d.hi)}°</span> <span style="color:var(--cold)">${f0(d.lo)}°</span></div>`).join("");
 
   renderMinuteCast(); renderHealth(); renderGauges();
@@ -528,6 +528,10 @@ function renderHourly(force) {
 // A day's wording: the NWS forecast where it has one (7 days), else Visual Crossing's description,
 // else the model blend's. Flags for freezing rain / ice and severe-storm risk (Visual Crossing).
 const dayText = (d, dd) => (d.by["NWS (official)"] || {}).text || d.desc || (dd || {}).text || "";
+// The day's icon goes with its wording: the NWS icon where the NWS wording is shown, Visual
+// Crossing's with its description, else the icon most sources agree on.
+const dayIcon = d => { const nws = d.by["NWS (official)"] || {}, vc = d.by["Visual Crossing"] || {};
+  return (nws.text && nws.icon) || (d.desc && (vc.desc_icon || vc.icon)) || d.icon; };
 function dayFlags(d) {
   const out = { html: "", lines: [] }, pt = d.ptype || [];
   if (d.ice_hours >= 3) {        // a few hours, not a stray one: Visual Crossing lists it generously
@@ -568,7 +572,7 @@ function renderDaily() {
     const srcRows = Object.entries(d.by).map(([k, v]) => `<tr><td>${k}</td><td style="color:var(--warm)">${f0(v.hi)}°</td><td style="color:var(--cold)">${f0(v.lo)}°</td><td style="color:var(--rain)">${v.pop != null ? v.pop + "%" : ""}</td><td>${esc(v.text || "")}</td></tr>`).join("");
     return `<div class="day" data-i="${i}">
       <div class="dn">${name}<small>${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}</small></div>
-      <div>${icon(d.icon, 24)}</div><div class="txt" title="${esc([txt, ...fl.lines].join("\n"))}">${fl.html}${esc(txt)}</div>
+      <div>${icon(dayIcon(d), 24)}</div><div class="txt" title="${esc([txt, ...fl.lines].join("\n"))}">${fl.html}${esc(txt)}</div>
       <div class="pop">${d.pop ? d.pop + "%" : ""}</div>
       <div class="lo">${f0(d.lo)}°</div>
       <div class="bar" title="${esc(`${name}: low ${f0(d.lo)}°, high ${f0(d.hi)}° (${W ? "average of all sources, weighted so the most accurate ones count more" : "average of all sources"}).\n` +
@@ -651,7 +655,7 @@ function renderMonth() {
         (isToday && g ? `Measured so far today: high ${f0(g.hi)}°, low ${f0(g.lo)}°\n` : "") +
         normTxt(ds).slice(1) + `\nClick for the details on the 16-Day tab.` + ext(x.hi, x.lo, out, true).t;
       const e = ext(x.hi, x.lo, out, true);
-      cells += `<div class="c fc${out}${isToday ? " today" : ""}${e.c}" data-i="${i}" title="${esc(tip)}"><div class="dn">${d.getDate()}${e.b}</div><div class="ic">${icon(x.icon, 20)}</div>
+      cells += `<div class="c fc${out}${isToday ? " today" : ""}${e.c}" data-i="${i}" title="${esc(tip)}"><div class="dn">${d.getDate()}${e.b}</div><div class="ic">${icon(dayIcon(x), 20)}</div>
         <div class="t"><span class="h${e.h}">${f0(x.hi)}°</span> <span class="l${e.l}">${f0(x.lo)}°</span></div>
         <div class="p">${fl.html}${wet}</div>${isToday && g ? `<div class="m">so far ${f0(g.hi)}/${f0(g.lo)}</div>` : ""}
         <div class="strip" style="background:linear-gradient(90deg,${tempColor(x.lo)},${tempColor(x.hi)})"></div></div>`;
