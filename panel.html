@@ -376,13 +376,13 @@ function render() {
   const rateTxt = (v, unit, dec) => v == null ? "" : `${v > 0 ? "▲ +" : v < 0 ? "▼ −" : "● "}${Math.abs(v).toFixed(dec)}${unit}`;
   const rateCol = v => v == null || Math.abs(v) < 0.05 ? "var(--dim)" : v > 0 ? "var(--warm)" : "var(--cold)";
   const actTip = act ? `Measured by your station today${act.since && act.since !== "00:00" ? ` (since ${hhmm(act.since)}, when WeatherDial started)` : " (since midnight)"}:\n` +
-    `High ${act.hi.toFixed(1)}°F at ${hhmm(act.hi_at) || "–"}, low ${act.lo.toFixed(1)}°F at ${hhmm(act.lo_at) || "–"}.\nThe "Forecast" line above is the average of all sources for the whole day.` : "";
+    `High ${act.hi.toFixed(1)}°F at ${hhmm(act.hi_at) || "–"}, low ${act.lo.toFixed(1)}°F at ${hhmm(act.lo_at) || "–"}.\nThe "Forecast" line above is the forecast for the whole day.` : "";
   $("now").innerHTML = `<div>${icon(n.icon, 70, isNight())}</div>
     <div><div class="big">${f0(n.temp)}<sup>°F</sup></div>
       ${tr != null ? `<div class="rate" style="color:${rateCol(tr)}" title="Temperature change over the last hour: ${tr > 0 ? "+" : ""}${tr.toFixed(1)}°F">${rateTxt(tr, "°/hr", 1)}</div>` : ""}
       <div class="feels" title="Feels like: wind chill when cold and windy, heat index when hot and humid">feels ${f0(n.feels)}°</div></div>
     <div><div class="cond">${esc(n.text || "")}</div>
-      <div class="hilo" title="Forecast high and low for today: the average of all sources"><span class="lbl">Forecast</span> <b>${f0(today.hi)}°</b> / <b>${f0(today.lo)}°</b> <small>high / low</small></div>
+      <div class="hilo" title="${esc(`Forecast high and low for today: the average of ${W ? usedTxt(today.used.hi, today.avail.hi) + ', the more accurate ones counting more' : 'all sources'}`)}"><span class="lbl">Forecast</span> <b>${f0(today.hi)}°</b> / <b>${f0(today.lo)}°</b> <small>high / low</small></div>
       ${act ? `<div class="hilo" title="${esc(actTip)}"><span class="lbl">So far</span> <b>${f0(act.hi)}°</b> / <b>${f0(act.lo)}°</b> <small>${hhmm(act.hi_at)} / ${hhmm(act.lo_at)}</small></div>` : ""}
       <div class="from">from ${esc(n.station || "–")} · ${n.age_s != null ? (n.age_s < 60 ? n.age_s + " s ago" : ago(n.time)) : ago(n.time)}</div></div>
     <div class="clock"><div class="tm" id="clkT"></div><div class="dt" id="clkD"></div></div>`;
@@ -511,10 +511,11 @@ function renderHourly(force) {
   svg.onmousemove = e => {
     const r = svg.getBoundingClientRect(), i = Math.max(0, Math.min(H.length - 1, Math.round((e.clientX - r.left - 30) / ((W - 44) / (H.length - 1))))), h = H[i];
     const c = $("cur"); c.setAttribute("x1", x(i)); c.setAttribute("x2", x(i)); c.setAttribute("visibility", "visible");
-    const nb = Object.keys(h.by || {}).length;
-    const how = `<div style="color:#aaa">Line: ${W ? "weighted " : ""}average of ${nb} source${nb === 1 ? "" : "s"} ${f0(h.temp_avg)}°` +
+    const nb = h.avail ?? Object.keys(h.by || {}).length, nu = (h.used || []).length;
+    const how = `<div style="color:#aaa">Line: average of ${W && nu < nb ? `the best-rated ${nu} of ${nb}` : nb} source${nb === 1 ? "" : "s"} ${f0(h.temp_avg)}°` +
       (Math.abs(h.adj) >= 0.5 ? `, moved ${h.adj > 0 ? "+" : ""}${h.adj.toFixed(0)}° toward your station's reading now` : "") + `</div>`;
-    const by = how + Object.entries(h.by || {}).map(([k, v]) => `<div style="color:#aaa">${k}: ${f0(v)}°</div>`).join("");
+    const by = how + Object.entries(h.by || {}).map(([k, v]) => { const u = !W || (h.used || []).includes(k);
+      return `<div style="color:${u ? "#aaa" : "#666"}">${k}: ${f0(v)}°${u ? "" : " (not used)"}</div>`; }).join("");
     tip.innerHTML = `<b>${dayName(h.t.slice(0, 10))} ${hourLabel(h.t)}</b> ${esc(h.text || "")}<br>${f0(h.temp)}°F (feels ${f0(h.feels)}°) · ${h.pop ?? 0}% · wind ${f0(h.wind)}${h.gust > h.wind ? ", gusts " + f0(h.gust) : ""} mph${h.aqi != null ? " · AQI " + h.aqi : ""}${by}`;
     tip.style.display = "block";
     const z = +document.body.style.zoom || 1, vw = innerWidth / z, vh = innerHeight / z;
@@ -575,7 +576,7 @@ function renderDaily() {
       <div>${icon(dayIcon(d), 24)}</div><div class="txt" title="${esc([txt, ...fl.lines].join("\n"))}">${fl.html}${esc(txt)}</div>
       <div class="pop">${d.pop ? d.pop + "%" : ""}</div>
       <div class="lo">${f0(d.lo)}°</div>
-      <div class="bar" title="${esc(`${name}: low ${f0(d.lo)}°, high ${f0(d.hi)}° (${W ? "average of all sources, weighted so the most accurate ones count more" : "average of all sources"}).\n` +
+      <div class="bar" title="${esc(`${name}: low ${f0(d.lo)}°, high ${f0(d.hi)}° (${W ? "average of " + usedTxt(d.used.hi, d.avail.hi) + ", the more accurate ones counting more" : "average of all sources"}).\n` +
         `Coloured bar: from the low to the high, shaded blue (cold) through to red (warm).\n` +
         (d.lo_min != null || d.hi_max != null ? `Thin tick marks at each end: the full spread of what the sources predict, from the coldest low (${f0(d.lo_min ?? d.lo)}°) to the warmest high (${f0(d.hi_max ?? d.hi)}°). Ticks far from the coloured bar mean the sources disagree.\n` : "") +
         `The grey track is the same scale for every day (coldest to warmest of the 16 days), so further right = warmer.`)}"><div class="sp" style="left:${pct(d.lo_min ?? d.lo)}%;width:${pct(d.hi_max ?? d.hi) - pct(d.lo_min ?? d.lo)}%"></div>
@@ -592,7 +593,7 @@ function renderDaily() {
       ${vcDetail(d)}${fl.lines.map(l => `<p style="color:var(--fair)">⚠ ${esc(l)}</p>`).join("")}
       ${dd.sunrise ? `<p>Sunrise ${clock(dd.sunrise)} · sunset ${clock(dd.sunset)} · UV ${dd.uv ?? "–"}${dd.snow ? ` · snow ${dd.snow.toFixed(1)}"` : ""}${dd.precip ? ` · precip ${dd.precip.toFixed(2)}"` : ""} · gusts ${f0(dd.gust)} mph</p>` : ""}
       <table>${srcRows}</table></div>`;
-  }).join("") + `<p style="color:var(--faint);font-size:11px;margin:8px 0 0">High/low = ${W ? "average of all sources, weighted so the most accurate ones count more (switch on the Compare tab)" : "average of all sources"}. Thin marks = the coldest low and warmest high any source predicts. Dot = how well the sources agree (green good, yellow fair, red they disagree). Click a day for details.</p>`;
+  }).join("") + `<p style="color:var(--faint);font-size:11px;margin:8px 0 0">High/low = ${W ? "average of the best-rated half of the sources that reach each day, the more accurate ones counting more (switch on the Compare tab)" : "average of all sources"}. Thin marks = the coldest low and warmest high any source predicts. Dot = how well the sources agree (green good, yellow fair, red they disagree). Click a day for details.</p>`;
 }
 // ---------------------------------------------------------------- month calendar
 // Forecast days (the same averages as 16-Day) on a calendar, and for past days what your station
@@ -618,9 +619,8 @@ function renderMonth() {
   const [y, m] = calMonth.split("-").map(Number);
   const start = new Date(y, m - 1, 1); start.setDate(1 - start.getDay());
   const end = new Date(y, m, 0); end.setDate(end.getDate() + 6 - end.getDay());
-  const wavg = (fcs, k) => { let s = 0, w = 0;
-    for (const [src, v] of Object.entries(fcs || {})) if (v[k] != null) { const x = W ? (W[src] ?? W._typical) : 1; s += v[k] * x; w += x; }
-    return w ? s / w : null; };
+  const fcAvg = (fcs, k) => { const have = Object.keys(fcs || {}).filter(src => fcs[src][k] != null);
+    return wavg(bestHalf(have).map(src => [src, fcs[src][k]])); };
   const agreeTxt = { good: "good (all within 5°)", fair: "fair (within 10°)", low: "low (more than 10° apart)" };
   // the month's warmest high and coldest low (measured days and forecast days alike; ties all marked)
   const inMonth = [];
@@ -648,7 +648,7 @@ function renderMonth() {
       const isToday = ds === today;
       const wet = dd.snow >= 0.1 ? `❄ ${dd.snow.toFixed(1)}"` : x.pop ? `${x.pop}%` : "";
       const tip = `${long}${isToday ? " (today)" : ""}\n${txt ? txt + "\n" : ""}${fl.lines.map(l => "⚠ " + l + "\n").join("")}` +
-        `Forecast high ${f0(x.hi)}°, low ${f0(x.lo)}° (${W ? "weighted " : ""}average of ${x.hi_n || Object.keys(x.by).length} sources; ` +
+        `Forecast high ${f0(x.hi)}°, low ${f0(x.lo)}° (average of ${W ? usedTxt(x.used.hi, x.avail.hi) : "all " + (x.hi_n || Object.keys(x.by).length) + " sources"}; all sources: ` +
         `highs ${f0(x.hi_min)}–${f0(x.hi_max)}°, lows ${f0(x.lo_min)}–${f0(x.lo_max)}°)\n` +
         (x.pop ? `Chance of rain or snow ${x.pop}%` + (dd.snow ? `, snow about ${dd.snow.toFixed(1)}"` : dd.precip ? `, about ${dd.precip.toFixed(2)}"` : "") + "\n" : "") +
         (x.agree ? `Sources agree: ${agreeTxt[x.agree]}\n` : "") +
@@ -660,10 +660,10 @@ function renderMonth() {
         <div class="p">${fl.html}${wet}</div>${isToday && g ? `<div class="m">so far ${f0(g.hi)}/${f0(g.lo)}</div>` : ""}
         <div class="strip" style="background:linear-gradient(90deg,${tempColor(x.lo)},${tempColor(x.hi)})"></div></div>`;
     } else if (act[ds]) {
-      const r = act[ds], fh = wavg(r.fc, "hi"), fl = wavg(r.fc, "lo");
+      const r = act[ds], fh = fcAvg(r.fc, "hi"), fl = fcAvg(r.fc, "lo");
       const miss = fh != null && fl != null ? (Math.abs(fh - r.actual.hi) + Math.abs(fl - r.actual.lo)) / 2 : null;
       const tip = `${long}\nMeasured by your station: high ${r.actual.hi.toFixed(1)}°F, low ${r.actual.lo.toFixed(1)}°F.` +
-        (fh != null ? `\nForecast the day before (${W ? "weighted " : ""}average of the sources): high ${f0(fh)}°, low ${f0(fl)}°, off by ${miss.toFixed(1)}° on average.` : "") + normTxt(ds);
+        (fh != null ? `\nForecast the day before (${W ? "average of the best-rated sources" : "average of all sources"}): high ${f0(fh)}°, low ${f0(fl)}°, off by ${miss.toFixed(1)}° on average.` : "") + normTxt(ds);
       const e = ext(r.actual.hi, r.actual.lo, out, false);
       cells += `<div class="c past${out}${e.c}" title="${esc(tip + e.t)}"><div class="dn">${d.getDate()}${e.b}</div>
         <div class="t"><span class="h${e.h}">${f0(r.actual.hi)}°</span> <span class="l${e.l}">${f0(r.actual.lo)}°</span></div>
@@ -754,17 +754,40 @@ function sourceWeights(A) {
   for (const [s, w] of scored) out[s] = Math.max(typical / 3, Math.min(typical * 3, w));
   return out;
 }
+// Best half: for each day (and each hour) only the better-scoring half of the sources that reach
+// it are averaged, at least 3 (all of them when 3 or fewer reach it). Sources without 7 scored
+// days rank as a typical source. Near days get the top-rated sources; far days, where only a few
+// sources reach, use the best of whatever does - so there are no gaps or one-source days.
+const BEST_MIN = 3;
+let missOf = {}, missTypical = 0;
+function bestHalf(srcs) {
+  if (!W || srcs.length <= BEST_MIN) return srcs;
+  const keep = Math.max(BEST_MIN, Math.ceil(srcs.length / 2));
+  return [...srcs].sort((a, b) => (missOf[a] ?? missTypical) - (missOf[b] ?? missTypical) || a.localeCompare(b)).slice(0, keep);
+}
+function wavg(pairs) {           // [[source, value]] -> weighted (or plain) average
+  let sum = 0, wsum = 0;
+  for (const [s, v] of pairs) { const w = W ? (W[s] ?? W._typical) : 1; sum += v * w; wsum += w; }
+  return wsum ? sum / wsum : null;
+}
+const usedTxt = (used, all) => used.length < all ? `the best-rated ${used.length} of ${all} sources (${used.join(", ")})` : `all ${all} sources`;
 function applyWeights() {
-  W = weighted ? sourceWeights(accuracy()) : null;
-  for (const d of D.days)
+  const A = accuracy();
+  W = weighted ? sourceWeights(A) : null;
+  missOf = {}; for (const [s, a] of Object.entries(A.by)) if (a.n >= 7) missOf[s] = a.mae;
+  const ms = Object.values(missOf).sort((a, b) => a - b); missTypical = ms.length ? ms[Math.floor(ms.length / 2)] : 0;
+  for (const d of D.days) {
+    d.used = {}; d.avail = {};
     for (const k of ["hi", "lo"]) {
       if (d[k + "_simple"] === undefined) d[k + "_simple"] = d[k];
-      if (!W) { d[k] = d[k + "_simple"]; continue; }
-      let sum = 0, wsum = 0;
-      for (const [s, v] of Object.entries(d.by))
-        if (v[k] != null) { const w = W[s] ?? W._typical; sum += v[k] * w; wsum += w; }
-      if (wsum) d[k] = Math.round(sum / wsum);
+      const have = Object.entries(d.by).filter(([, v]) => v[k] != null).map(([s]) => s);
+      d.avail[k] = have.length;
+      if (!W) { d[k] = d[k + "_simple"]; d.used[k] = have; continue; }
+      d.used[k] = bestHalf(have);
+      const a = wavg(d.used[k].map(s => [s, d.by[s][k]]));
+      if (a != null) d[k] = Math.round(a);
     }
+  }
   hourlyLine();
   for (const h of D.hourly) {      // feels-like moves with the line (it came from the model's own temperature)
     if (h.feels_raw === undefined) h.feels_raw = h.feels;
@@ -774,8 +797,8 @@ function applyWeights() {
 // The hourly temperature line: the same (weighted) average of every source for each hour, then
 // nudged to your station's actual reading - fully at "now", fading out over the next BLEND_H hours.
 const BLEND_H = 6;
-const LINE_EXPLAIN = "The line: for each hour, the average of every source's forecast, weighted so the sources " +
-  "that have been most accurate at your place count more (switch on the Compare tab).\n" +
+const LINE_EXPLAIN = "The line: for each hour, the average of the best-rated half of the sources (at least 3), " +
+  "the most accurate at your place counting more (switch on the Compare tab).\n" +
   "Near now it also starts from your station's actual reading and blends back into the forecast over " +
   "the next 6 hours, so the line doesn't start off from where the temperature really is.\n" +
   "Sky, icons and rain chances still follow the National Weather Service where it has hours.";
@@ -783,10 +806,9 @@ let blend = null;    // {off, until} when the station nudge is in use (for toolt
 function hourlyLine() {
   for (const h of D.hourly) {
     if (h.temp_nws === undefined) h.temp_nws = h.temp;     // what the backend sent (NWS where it has hours)
-    let sum = 0, wsum = 0;
-    for (const [s, v] of Object.entries(h.by || {}))
-      if (v != null) { const w = W ? (W[s] ?? W._typical) : 1; sum += v * w; wsum += w; }
-    h.temp_avg = wsum ? sum / wsum : h.temp_nws;
+    const have = Object.entries(h.by || {}).filter(([, v]) => v != null).map(([s]) => s);
+    h.used = bestHalf(have); h.avail = have.length;
+    h.temp_avg = wavg(h.used.map(s => [s, h.by[s]])) ?? h.temp_nws;
     h.temp = h.temp_avg; h.adj = 0;
   }
   blend = null;
@@ -804,7 +826,9 @@ function hourlyLine() {
     h.adj = off * f; h.temp = h.temp_avg + h.adj; });
   blend = { off, station: n.station, until: new Date(nowMs + BLEND_H * 3600000) };
 }
-const shareOf = s => { if (!W) return null; const tot = Object.keys(D.days[1]?.by || {}).reduce((t, x) => t + (W[x] ?? W._typical), 0);
+const shareOf = s => { if (!W) return null; const u = D.days[1]?.used?.hi || [];
+  if (!u.includes(s)) return 0;
+  const tot = u.reduce((t, x) => t + (W[x] ?? W._typical), 0);
   return Math.round((W[s] ?? W._typical) / tot * 100); };
 
 function accBadge(src, A) {
@@ -814,7 +838,7 @@ function accBadge(src, A) {
     const share = shareOf(src);
     return `<span class="acc none" title="${esc(`${src}: not enough history yet (${n} day${n === 1 ? "" : "s"} scored, needs 3).\n` +
       "WeatherDial saves each source's forecasts and checks them against your station every day, so this fills in by itself." +
-      (share != null ? `\nIn the weighted average it counts as a typical source for now (about ${share}%).` : ""))}">${n ? n + "d" : "…"}</span>`;
+      (share ? `\nIn tomorrow's average it counts as a typical source for now (about ${share}%).` : share === 0 ? "\nIt is not among tomorrow's best-rated half, so it isn't in tomorrow's average." : ""))}">${n ? n + "d" : "…"}</span>`;
   }
   const g = a.of > 1 ? 5 - 4 * (a.rank - 1) / (a.of - 1) : 5;
   const lean = Math.abs(a.bias) < 0.75 ? "No consistent lean warm or cold."
@@ -823,18 +847,20 @@ function accBadge(src, A) {
   const tip = `${src}: next-day forecast vs your station, last ${accDays} days (${a.n} days scored)\n` +
     `Off by ${a.mae.toFixed(1)}° on average (highs ${a.mhi?.toFixed(1) ?? "–"}°, lows ${a.mlo?.toFixed(1) ?? "–"}°).\n` +
     `${lean}\nRanks #${a.rank} of ${a.of}. Lower is better.` +
-    (share != null ? `\nShare of the weighted average: about ${share}%${a.n < 7 ? " (counts as a typical source until it has 7 days)" : ""}.` : "");
+    (share ? `\nShare of tomorrow's average: about ${share}%${a.n < 7 ? " (counts as a typical source until it has 7 days)" : ""}.` : share === 0 ? "\nNot among tomorrow's best-rated half, so it isn't in tomorrow's average." : "");
   return `<span class="acc" style="background:${goodCol(Math.round(g))}" title="${esc(tip)}">±${a.mae.toFixed(1)}°</span>`;
 }
-const WEIGHT_EXPLAIN = "On: each day's high and low is a weighted average, so the sources that have been " +
-  "most accurate at your place (over the period chosen beside it) count more. A source's weight is " +
-  "1 ÷ (its average miss)², kept between ⅓ and 3 times a typical source's weight. Sources with less " +
-  "than 7 days of history count as typical.\nOff: every source counts the same.";
+const WEIGHT_EXPLAIN = "On: each day's high and low (and each hour of the line) uses only the best-rated half of the " +
+  "sources that forecast it - at least 3 - ranked by accuracy at your place over the period chosen beside it. " +
+  "Near days get the top sources; far days, where fewer sources reach, use the best of the ones that do.\n" +
+  "Those sources are averaged with the more accurate ones counting more: weight = 1 ÷ (its average miss)², " +
+  "kept between ⅓ and 3 times a typical source's weight. Sources with less than 7 days of history rank and count as typical.\n" +
+  "Off: every source is used and counts the same.";
 function accSelector(A) {
   return `<div class="accbar"><span title="${esc(ACC_EXPLAIN)}">Accuracy ⓘ over the last
     <select class="accsel">${ACC_CHOICES.map(n => `<option value="${n}" ${n === accDays ? "selected" : ""}>${n}</option>`).join("")}</select>
     days</span> <small>(${A.days} day${A.days === 1 ? "" : "s"} of your station's highs and lows so far)</small>
-    <label class="wtog" title="${esc(WEIGHT_EXPLAIN)}"><input type="checkbox" class="wchk" ${weighted ? "checked" : ""}> Weight the averages by accuracy ⓘ</label></div>`;
+    <label class="wtog" title="${esc(WEIGHT_EXPLAIN)}"><input type="checkbox" class="wchk" ${weighted ? "checked" : ""}> Use the best-rated sources ⓘ</label></div>`;
 }
 document.addEventListener("change", e => {
   const t = e.target;
@@ -850,15 +876,15 @@ function renderCompare() {
   const dev = (v, avg) => v == null || avg == null ? "" : v - avg >= 4 ? "dev-hi" : v - avg <= -4 ? "dev-lo" : "";
   const vs = (v, avg) => { if (v == null) return "no forecast"; const d = Math.round(v - avg);
     return `${f0(v)}° (${d === 0 ? "same as" : Math.abs(d) + "° " + (d > 0 ? "warmer than" : "colder than")} the ${f0(avg)}° average)`; };
-  const cell = (d, s, i) => { const v = d.by[s]; if (!v || (v.hi == null && v.lo == null)) return `<td style="color:var(--faint)" title="${s} has no forecast for this day">–</td>`;
-    const tip = `${s}, ${i ? dayName(d.date, true) : "today"}\nHigh ${vs(v.hi, d.hi)}\nLow ${vs(v.lo, d.lo)}${v.pop != null ? "\nChance of rain/snow " + v.pop + "%" : ""}${v.text ? "\n" + v.text : ""}`;
-    return `<td title="${esc(tip)}"><span class="${dev(v.hi, d.hi)}">${f0(v.hi)}</span><span style="color:var(--faint)">/</span><span class="${dev(v.lo, d.lo)}">${f0(v.lo)}</span></td>`; };
+  const cell = (d, s, i) => { const v = d.by[s], out = W && d.used && !d.used.hi.includes(s); if (!v || (v.hi == null && v.lo == null)) return `<td style="color:var(--faint)" title="${s} has no forecast for this day">–</td>`;
+    const tip = `${s}, ${i ? dayName(d.date, true) : "today"}\nHigh ${vs(v.hi, d.hi)}\nLow ${vs(v.lo, d.lo)}${v.pop != null ? "\nChance of rain/snow " + v.pop + "%" : ""}${v.text ? "\n" + v.text : ""}` + (out ? "\nNot among the best-rated sources for this day, so not in its average (dimmed)." : "");
+    return `<td title="${esc(tip)}"${out ? ' style="opacity:.4"' : ""}><span class="${dev(v.hi, d.hi)}">${f0(v.hi)}</span><span style="color:var(--faint)">/</span><span class="${dev(v.lo, d.lo)}">${f0(v.lo)}</span></td>`; };
   let h = `<h4>Highs / lows by source</h4>${accSelector(A)}<table class="cmp"><tr><th></th><th title="${esc(ACC_EXPLAIN)}">Accuracy ⓘ</th>${days.map((d, i) => `<th>${i ? dayName(d.date) : "Today"}</th>`).join("")}</tr>`;
   h += srcs.map(s => `<tr><td>${s}</td><td>${accBadge(s, A)}</td>${days.map((d, i) => cell(d, s, i)).join("")}</tr>`).join("");
   const avgTip = d => W
-    ? `Weighted average of ${d.hi_n} sources (the more accurate ones count more): high ${f0(d.hi)}°, low ${f0(d.lo)}°.\nPlain average would be ${f0(d.hi_simple)}° / ${f0(d.lo_simple)}°.`
+    ? `Average of ${usedTxt(d.used.hi, d.avail.hi)}, the more accurate ones counting more: high ${f0(d.hi)}°, low ${f0(d.lo)}°.\nPlain average of every source would be ${f0(d.hi_simple)}° / ${f0(d.lo_simple)}°.`
     : `Average of ${d.hi_n} sources, all counting the same: high ${f0(d.hi)}°, low ${f0(d.lo)}°`;
-  h += `<tr class="cons"><td title="${esc(W ? WEIGHT_EXPLAIN : "Every source counts the same.")}">${W ? "Weighted avg ⓘ" : "Average"}</td><td></td>${days.map(d => `<td title="${esc(avgTip(d))}">${f0(d.hi)}/${f0(d.lo)}</td>`).join("")}</tr>`;
+  h += `<tr class="cons"><td title="${esc(W ? WEIGHT_EXPLAIN : "Every source counts the same.")}">${W ? "Best-rated avg ⓘ" : "Average"}</td><td></td>${days.map(d => `<td title="${esc(avgTip(d))}">${f0(d.hi)}/${f0(d.lo)}</td>`).join("")}</tr>`;
   h += `<tr><td style="color:var(--dim)">Spread (highs)</td><td></td>${days.map(d => `<td style="color:var(--dim)" title="Warmest high ${d.hi_max}° minus coldest high ${d.hi_min}°. Bigger = the sources disagree more.">${d.hi_max - d.hi_min}°</td>`).join("")}</tr></table>`;
   h += `<p style="color:var(--dim);font-size:11px;margin-top:6px">Each cell is <b>high/low</b>. <span class="dev-hi">Red</span> = 4° or more <b>warmer</b> than the average of all sources that day; <span class="dev-lo">blue</span> = 4° or more <b>colder</b>. White = within 4°. Hover over a cell for details.</p>`;
   h += `<h4>Right now</h4><table class="cmp"><tr><th>Reading</th><th>Temp</th><th>Wind</th><th>Humidity</th><th>Pressure</th></tr>` +

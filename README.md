@@ -17,7 +17,7 @@ forecasters' discussion). Elsewhere everything else still works.
   rain today, UV and solar, sunrise and sunset, moon, air quality and lightning.
   - Under the temperature: the **change over the last hour** (▲ red = warming, ▼ blue =
     cooling) and the feels-like temperature.
-  - **Forecast** high / low for today (the average of all sources) and **So far**: the
+  - **Forecast** high / low for today (the average of the best-rated sources) and **So far**: the
     actual high / low your station has measured since midnight, with the times they
     happened. Hover for the exact readings.
   - The Pressure box also shows the **change over the last hour** (e.g. +0.012/hr); hover
@@ -40,12 +40,12 @@ forecasters' discussion). Elsewhere everything else still works.
     notification** shows what a notification looks like.
 - **Next 2 hours** *(AccuWeather MinuteCast, optional)*: e.g. "Rain starting in 6 min", with
   a 2-hour bar (blue rain, white snow, purple ice).
-- **Hourly:** a 48-hour or 7-day chart. It shows the forecast line (the average of every source,
-  weighted by accuracy, and starting from your station's actual reading), a shaded band for the range of all sources, feels-like (dotted),
+- **Hourly:** a 48-hour or 7-day chart. It shows the forecast line (the average of the best-rated sources,
+  starting from your station's actual reading), a shaded band for the range of all sources, feels-like (dotted),
   chance of rain or snow (blue bars for rain, white for snow), wind, night shading and the
   freezing line. A blue **now** line (with a dot on the temperature line) marks the current
   moment.
-- **16-Day:** the average of all sources for each day (weighted by accuracy, see below), with a coloured dot for how well they
+- **16-Day:** the average of the best-rated sources for each day (see below), with a coloured dot for how well they
   agree. Hover a day's bar for what the bar, its colours and the end ticks mean.
   With a Visual Crossing key: a blue **ICE** tag on days where freezing rain or ice is
   expected for 3 hours or more (with at least a 50% chance of precipitation), an amber or red
@@ -284,8 +284,8 @@ Underground. Weather Display can do that upload for you.
 
 ## How the numbers are worked out
 
-- **Daily high and low** = the average of every source that forecasts that day, weighted by
-  accuracy unless you switch that off. Every
+- **Daily high and low** = the average of the best-rated half of the sources that forecast
+  that day (see *Best-rated sources* below), unless you switch that off. Every
   source's low is the *calendar-day* low (that morning). AccuWeather gives the following
   night's low instead, so its lows are moved to the next day to line up.
 - **Agreement dot** (16-Day): green when all sources' highs and lows are within 5°, yellow
@@ -295,8 +295,8 @@ Underground. Weather Display can do that upload for you.
 - **Compare colours:** each cell is high/low. A **red** number is 4° or more **warmer** than
   that day's average; a **blue** one is 4° or more **colder**. White is within 4°.
 - **Spread (highs):** the warmest minus the coldest high for that day.
-- **Hourly line:** for each hour, the average of every source's forecast, weighted by accuracy
-  like the 16-Day highs and lows (plain average when the Compare switch is off). Near now the
+- **Hourly line:** for each hour, the average of the best-rated sources' forecasts, picked
+  and weighted like the 16-Day highs and lows (plain average when the Compare switch is off). Near now the
   line starts at your station's actual reading and blends back into the forecast over the next
   6 hours, so a source that's running warm or cold this morning doesn't pull the line away from
   reality. Hover an hour to see the average and how far it was moved. Sky, icons and rain
@@ -326,16 +326,23 @@ Underground. Weather Display can do that upload for you.
   so far.
 - The history is kept in `data/verify/` (about a year).
 
-**Weighted averages** (on by default; switch: *Weight the averages by accuracy* on the Compare
-and Sources tabs). Each day's high and low then count the more accurate sources more:
+**Best-rated sources** (on by default; switch: *Use the best-rated sources* on the Compare
+and Sources tabs). Each day's high and low, and each hour of the line, then use only the
+better half of the sources that reach that day, ranked by accuracy at your station:
+
+- At least 3 sources are always used (all of them when only 3 or fewer reach a day). Near
+  days get the top-rated sources; far days, where fewer sources reach, use the best of the
+  ones that do, so there are no gaps or one-source days.
+- A source with less than 7 days of history ranks as a typical source.
+- The chosen sources are averaged with the more accurate ones counting more:
 
 - A source's weight is 1 ÷ (its average miss)². With a 3.3° miss it counts about three times
   as much as a source with a 5.6° miss.
 - It's kept between ⅓ and 3 times a typical source's weight, so no single source takes over.
-- A source with less than 7 days of history counts as a typical source.
-- The weights follow the period chosen in the accuracy box.
-- Hover a badge to see that source's share of the average. Hover a **Weighted avg** cell to
-  compare it with the plain average.
+- The ranking and weights follow the period chosen in the accuracy box.
+- Hover a badge to see that source's share of tomorrow's average (or that it isn't used).
+  Hover a **Best-rated avg** cell to see which sources were used and the plain average of
+  all of them. On the Hourly chart, unused sources are greyed in the tooltip.
 
 ## How fresh is each part?
 
